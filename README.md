@@ -1,4 +1,4 @@
-# Anki MCP Server - Adalbert
+# Adalbert - Anki MCP Server
 
 An MCP (Model Context Protocol) server that enriches Anki exam decks with AI-generated German explanations using Gemini API.
 
