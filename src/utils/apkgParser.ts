@@ -3,8 +3,10 @@ import Database from 'better-sqlite3';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { AnkiDeck } from '../types/index.js';
 
-export interface AnkiCard {
+// Extended AnkiCard for .apkg files (includes metadata)
+export interface AnkiCardFromApkg {
   front: string;
   back: string;
   noteId: number;
@@ -12,10 +14,8 @@ export interface AnkiCard {
   noteType: string;
 }
 
-export interface AnkiDeck {
-  name: string;
-  cards: AnkiCard[];
-}
+// Export AnkiDeck for backward compatibility
+export type { AnkiDeck };
 
 /**
  * Parse an .apkg file and extract all cards
@@ -71,7 +71,7 @@ export async function parseApkg(filePath: string): Promise<AnkiDeck> {
         fieldNames: string;
       }>;
       
-      const cards: AnkiCard[] = [];
+      const cards: AnkiCardFromApkg[] = [];
       
       for (const note of notes) {
         // Parse fields (pipe-separated, with \x1f as field separator in some versions)

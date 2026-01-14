@@ -3,18 +3,9 @@
  * AnkiConnect is an add-on that provides a REST API for Anki Desktop
  */
 
+import { AnkiConnectRequest, AnkiConnectResponse, AnkiCardFromDeck } from '../types/index.js';
+
 const ANKICONNECT_URL = 'http://localhost:8765';
-
-interface AnkiConnectRequest {
-  action: string;
-  version: number;
-  params?: any;
-}
-
-interface AnkiConnectResponse {
-  result: any;
-  error: string | null;
-}
 
 export async function ankiRequest(request: AnkiConnectRequest): Promise<any> {
   try {
@@ -312,17 +303,7 @@ export async function addNotes(
   return noteIds;
 }
 
-export interface AnkiCardFromDeck {
-  front: string;
-  back: string;
-  question: string;
-  options: string[]; // Q_1, Q_2, Q_3, Q_4, Q_5
-  answers: string; // Binary code like "1 1 0 1"
-  qType: number; // 0=kprim, 1=mc, 2=sc
-  noteId: number;
-  tags: string[];
-  noteType: string;
-}
+// AnkiCardFromDeck is now imported from types/index.ts
 
 /**
  * Get all cards from a deck

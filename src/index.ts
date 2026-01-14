@@ -12,6 +12,8 @@ import { enrichCardsTool, handleEnrichCards } from './tools/enrichCards.js';
 import { syncToAnkiTool, handleSyncToAnki } from './tools/syncToAnki.js';
 import { listDecksTool, handleListDecks } from './tools/listDecks.js';
 import { getCardsFromDeckTool, handleGetCardsFromDeck } from './tools/getCardsFromDeck.js';
+import { createJsonResponse } from './utils/responseUtils.js';
+import { EnrichedCard } from './types/index.js';
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
@@ -48,14 +50,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     switch (name) {
       case 'read_deck': {
         const result = await handleReadDeck(args as { filePath: string });
-        return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
+        return createJsonResponse(result);
       }
 
       case 'enrich_cards': {
@@ -63,36 +58,22 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           throw new Error('GEMINI_API_KEY environment variable is not set');
         }
         const result = await handleEnrichCards(
-          args as { cards: Array<{ front: string; back: string }> },
+          args as { cards: Array<{ front: string; back: string; options?: string[]; answers?: string }> },
           GEMINI_API_KEY
         );
-        return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
+        return createJsonResponse(result);
       }
 
       case 'sync_to_anki': {
         const syncArgs = args as {
           deckName: string;
-          cards: Array<{
-            front: string;
-            back: string;
-            lösung?: string;
-            erklärung?: string;
-            eselsbrücke?: string;
-            referenz?: string;
-          }>;
+          cards: Array<Partial<EnrichedCard>>;
           tags?: string[];
         };
         // Convert to EnrichedCard format (ensuring required fields)
-        const enrichedCards = syncArgs.cards.map(card => ({
-          front: card.front,
-          back: card.back,
+        const enrichedCards: EnrichedCard[] = syncArgs.cards.map(card => ({
+          front: card.front || '',
+          back: card.back || '',
           lösung: card.lösung || '',
           erklärung: card.erklärung || '',
           eselsbrücke: card.eselsbrücke || '',
@@ -103,38 +84,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           cards: enrichedCards,
           tags: syncArgs.tags,
         });
-        return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
+        return createJsonResponse(result);
       }
 
       case 'list_anki_decks': {
         const result = await handleListDecks();
-        return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
+        return createJsonResponse(result);
       }
 
       case 'get_cards_from_deck': {
         const result = await handleGetCardsFromDeck(args as { deckName: string });
-        return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
+        return createJsonResponse(result);
       }
 
       default:

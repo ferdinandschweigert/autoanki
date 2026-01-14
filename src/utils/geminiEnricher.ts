@@ -1,13 +1,6 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
-
-export interface EnrichedCard {
-  front: string;
-  back: string;
-  lösung: string;  // Die richtige Antwort/Lösung (ganz oben)
-  erklärung: string;
-  eselsbrücke: string;
-  referenz: string;  // Quellenangabe (Lehrbuch/Leitlinie)
-}
+import { EnrichedCard } from '../types/index.js';
+import { parseGeminiResponse, normalizeGeminiResponse } from './jsonUtils.js';
 
 /**
  * Enrich a single card with German explanations using Gemini API
@@ -97,54 +90,31 @@ Antworte im folgenden JSON-Format:
   "referenz": "Passende Quelle/Lehrbuch/Leitlinie"
 }`;
 
-  let text = '';
-  
   try {
     const result = await model.generateContent(prompt);
     const response = await result.response;
-    text = response.text();
+    const text = response.text();
     
-    // Try to extract JSON from the response
-    let jsonText = text.trim();
-    
-    // Remove markdown code blocks if present
-    if (jsonText.startsWith('```')) {
-      jsonText = jsonText.replace(/^```(?:json)?\n?/gm, '').replace(/```$/gm, '');
-    }
-    
-    // Try to find JSON object in the text
-    const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      jsonText = jsonMatch[0];
-    }
-    
-    const parsed = JSON.parse(jsonText);
-    
-    // Behalte die bestehende Antwort (back) bei
-    // Die Lösung kann die bestehende Antwort sein oder eine neue, falls back leer ist
-    const lösung = parsed.lösung || parsed.loesung || parsed.antwort || (back || '');
+    // Parse and normalize the response
+    const parsed = parseGeminiResponse(text, back);
+    const normalized = normalizeGeminiResponse(parsed, back);
     
     return {
       front,
-      back: back || '', // Behalte die bestehende Antwort bei (auch wenn leer)
-      lösung: lösung,
-      erklärung: parsed.erklärung || parsed.erklarung || '',
-      eselsbrücke: parsed.eselsbrücke || parsed.eselsbrucke || '',
-      referenz: parsed.referenz || '',
+      back: back || '',
+      ...normalized,
     };
   } catch (error: any) {
-    // Better error handling - log the actual error
     console.error(`Gemini API Error: ${error.message}`);
-    if (text) {
-      console.error(`Response text (first 500 chars): ${text.substring(0, 500)}`);
-    }
     
-    // Fallback if JSON parsing fails - use the raw text if we got it
-    const fallbackText = text || `Fehler bei der Generierung: ${error.message}`;
+    // Fallback if API fails
+    const fallbackText = error.message.includes('parse') 
+      ? `Fehler bei der JSON-Verarbeitung: ${error.message}`
+      : `Fehler bei der Generierung: ${error.message}`;
     
     return {
       front,
-      back: back || '', // Behalte die bestehende Antwort bei
+      back: back || '',
       lösung: back || '',
       erklärung: fallbackText,
       eselsbrücke: '',

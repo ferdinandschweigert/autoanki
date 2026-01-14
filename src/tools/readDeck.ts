@@ -1,5 +1,6 @@
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
-import { parseApkg, AnkiDeck } from '../utils/apkgParser.js';
+import { parseApkg } from '../utils/apkgParser.js';
+import { AnkiDeck } from '../types/index.js';
 import * as fs from 'fs';
 import * as path from 'path';
 

@@ -1,5 +1,6 @@
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
-import { getCardsFromDeck, checkAnkiConnect, AnkiCardFromDeck } from '../utils/ankiConnect.js';
+import { getCardsFromDeck, checkAnkiConnect } from '../utils/ankiConnect.js';
+import { AnkiCardFromDeck } from '../types/index.js';
 
 export const getCardsFromDeckTool: Tool = {
   name: 'get_cards_from_deck',

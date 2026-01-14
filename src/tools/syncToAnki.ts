@@ -1,6 +1,6 @@
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { addNotes, checkAnkiConnect } from '../utils/ankiConnect.js';
-import { EnrichedCard } from '../utils/geminiEnricher.js';
+import { EnrichedCard } from '../types/index.js';
 
 export const syncToAnkiTool: Tool = {
   name: 'sync_to_anki',

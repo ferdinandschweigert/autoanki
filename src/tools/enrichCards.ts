@@ -1,5 +1,6 @@
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
-import { enrichCards, EnrichedCard } from '../utils/geminiEnricher.js';
+import { enrichCards } from '../utils/geminiEnricher.js';
+import { EnrichedCard } from '../types/index.js';
 
 export const enrichCardsTool: Tool = {
   name: 'enrich_cards',
@@ -9,12 +10,14 @@ export const enrichCardsTool: Tool = {
     properties: {
       cards: {
         type: 'array',
-        description: 'Array of cards to enrich, each with front (question) and back (answer)',
+        description: 'Array of cards to enrich, each with front (question) and back (answer), optionally with options and answers',
         items: {
           type: 'object',
           properties: {
             front: { type: 'string' },
             back: { type: 'string' },
+            options: { type: 'array', items: { type: 'string' } },
+            answers: { type: 'string' },
           },
           required: ['front', 'back'],
         },
@@ -25,7 +28,7 @@ export const enrichCardsTool: Tool = {
 };
 
 export async function handleEnrichCards(
-  args: { cards: Array<{ front: string; back: string }> },
+  args: { cards: Array<{ front: string; back: string; options?: string[]; answers?: string }> },
   apiKey: string
 ): Promise<EnrichedCard[]> {
   if (!apiKey) {
