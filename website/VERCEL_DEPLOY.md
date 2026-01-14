@@ -8,7 +8,7 @@
 
 3. **Import Project**:
    - Click "Add New..." → "Project"
-   - Select your repository: `ferdinandschweigert/autoanki`
+   - Select your repository: `ferdinandschweigert/adalbert`
    - Vercel will auto-detect Next.js
 
 4. **Configure Project**:
