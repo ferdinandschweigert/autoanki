@@ -44,12 +44,20 @@ export default function Home() {
               KI-generierten deutschen Erklärungen anreichert und organisiert.
             </p>
             <div className="flex flex-col gap-4 sm:flex-row">
-              <Button size="lg" className="bg-blue-600 hover:bg-blue-700 text-white">
-                <BookOpen className="mr-2 h-5 w-5" />
-                Dokumentation
+              <Button 
+                size="lg" 
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+                asChild
+              >
+                <a href="https://github.com/ferdinandschweigert/autoanki/blob/main/README.md" target="_blank" rel="noopener noreferrer">
+                  <BookOpen className="mr-2 h-5 w-5" />
+                  Dokumentation
+                </a>
               </Button>
-              <Button size="lg" variant="outline">
-                GitHub
+              <Button size="lg" variant="outline" asChild>
+                <a href="https://github.com/ferdinandschweigert/autoanki" target="_blank" rel="noopener noreferrer">
+                  GitHub
+                </a>
               </Button>
             </div>
           </div>
@@ -198,9 +206,20 @@ export default function Home() {
             <p className="text-sm text-zinc-500">
               Anki MCP Server mit KI-Anreicherung
             </p>
+            <p className="text-xs text-zinc-400 mt-2">
+              "Adalbert" is a personal project name. No copyright intended.
+            </p>
             <div className="flex gap-4">
-              <Button variant="ghost" size="sm">GitHub</Button>
-              <Button variant="ghost" size="sm">Dokumentation</Button>
+              <Button variant="ghost" size="sm" asChild>
+                <a href="https://github.com/ferdinandschweigert/autoanki" target="_blank" rel="noopener noreferrer">
+                  GitHub
+                </a>
+              </Button>
+              <Button variant="ghost" size="sm" asChild>
+                <a href="https://github.com/ferdinandschweigert/autoanki/blob/main/README.md" target="_blank" rel="noopener noreferrer">
+                  Dokumentation
+                </a>
+              </Button>
             </div>
           </div>
         </div>

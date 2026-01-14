@@ -1,7 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  output: 'standalone',
+  // Ensure proper routing
+  trailingSlash: false,
 };
 
 export default nextConfig;

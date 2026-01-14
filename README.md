@@ -4,6 +4,8 @@
 
 An MCP (Model Context Protocol) server that enriches Anki exam decks with AI-generated German explanations using Gemini API.
 
+> **Note**: "Adalbert" is used as a personal project name. This is an open-source educational tool with no commercial affiliation or copyright claims to the name.
+
 ## How It Works
 
 **MCP is NOT a CLI** - it's a background server that runs in Cursor. When you talk to me (Adalbert), I can call these tools to:
