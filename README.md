@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="assets/adalbert.png" alt="Adalbert" width="200"/>
+</div>
+
 # Adalbert - Anki MCP Server
 
 An MCP (Model Context Protocol) server that enriches Anki exam decks with AI-generated German explanations using Gemini API.
