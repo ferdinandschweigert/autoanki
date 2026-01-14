@@ -19,7 +19,7 @@ export default function Home() {
     <div className="min-h-screen bg-gradient-to-b from-zinc-50 to-white">
       {/* Hero Section */}
       <section className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(124,58,237,0.15),transparent)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(37,99,235,0.15),transparent)]" />
         <div className="container mx-auto px-6 py-24 md:py-32">
           <div className="flex flex-col items-center text-center">
             <div className="mb-8">
@@ -29,7 +29,7 @@ export default function Home() {
                 width={150}
                 height={150}
                 priority
-                className="rounded-full shadow-2xl ring-4 ring-violet-500/20"
+                className="rounded-full shadow-2xl ring-4 ring-blue-500/20"
               />
             </div>
             <Badge variant="secondary" className="mb-4">
@@ -44,7 +44,7 @@ export default function Home() {
               KI-generierten deutschen Erklärungen anreichert und organisiert.
             </p>
             <div className="flex flex-col gap-4 sm:flex-row">
-              <Button size="lg" className="bg-violet-600 hover:bg-violet-700 text-white">
+              <Button size="lg" className="bg-blue-600 hover:bg-blue-700 text-white">
                 <BookOpen className="mr-2 h-5 w-5" />
                 Dokumentation
               </Button>
@@ -83,10 +83,10 @@ export default function Home() {
             </p>
           </div>
           <div className="grid md:grid-cols-3 gap-8">
-            <Card className="border-violet-200">
+            <Card className="border-blue-200">
               <CardHeader className="text-center">
-                <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-violet-100">
-                  <BookOpen className="h-6 w-6 text-violet-600" />
+                <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-blue-100">
+                  <BookOpen className="h-6 w-6 text-blue-600" />
                 </div>
                 <CardTitle>1. Decks lesen</CardTitle>
               </CardHeader>
@@ -94,10 +94,10 @@ export default function Home() {
                 Liest deine .apkg Dateien oder verbindet sich direkt mit Anki Desktop
               </CardContent>
             </Card>
-            <Card className="border-violet-200">
+            <Card className="border-blue-200">
               <CardHeader className="text-center">
-                <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-violet-100">
-                  <Brain className="h-6 w-6 text-violet-600" />
+                <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-blue-100">
+                  <Brain className="h-6 w-6 text-blue-600" />
                 </div>
                 <CardTitle>2. KI-Anreicherung</CardTitle>
               </CardHeader>
@@ -105,10 +105,10 @@ export default function Home() {
                 Generiert deutsche Erklärungen, Eselsbrücken und Referenzen via Gemini API
               </CardContent>
             </Card>
-            <Card className="border-violet-200">
+            <Card className="border-blue-200">
               <CardHeader className="text-center">
-                <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-violet-100">
-                  <CheckCircle className="h-6 w-6 text-violet-600" />
+                <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-blue-100">
+                  <CheckCircle className="h-6 w-6 text-blue-600" />
                 </div>
                 <CardTitle>3. Synchronisieren</CardTitle>
               </CardHeader>
@@ -168,7 +168,7 @@ export default function Home() {
             </Card>
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-violet-600">
+                <CardTitle className="flex items-center gap-2 text-blue-600">
                   <FileText className="h-5 w-5" />
                   REFERENZ
                 </CardTitle>

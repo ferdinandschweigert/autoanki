@@ -100,7 +100,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="flex items-center gap-2">
-                <BookOpen className="h-5 w-5 text-violet-600" />
+                <BookOpen className="h-5 w-5 text-blue-600" />
                 Anki Dashboard
               </CardTitle>
               <CardDescription>
@@ -141,7 +141,7 @@ export default function Dashboard() {
               <select
                 value={selectedDeck}
                 onChange={(e) => setSelectedDeck(e.target.value)}
-                className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 disabled={loading || decks.length === 0}
               >
                 <option value="">-- Deck auswählen --</option>
@@ -164,7 +164,7 @@ export default function Dashboard() {
 
             {loading && (
               <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-6 w-6 animate-spin text-violet-600" />
+                <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
                 <span className="ml-2 text-zinc-600">Lade...</span>
               </div>
             )}
@@ -176,7 +176,7 @@ export default function Dashboard() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5 text-violet-600" />
+              <FileText className="h-5 w-5 text-blue-600" />
               Karten aus &quot;{selectedDeck}&quot;
             </CardTitle>
             <CardDescription>
