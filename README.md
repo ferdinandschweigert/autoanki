@@ -1,6 +1,4 @@
-<div align="center">
-  <img src="assets/adalbert.png" alt="Adalbert" width="200"/>
-</div>
+![Adalbert](assets/adalbert.png)
 
 # Adalbert - Anki MCP Server
 
