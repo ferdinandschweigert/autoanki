@@ -4,3 +4,19 @@ dist/
 .env
 *.apkg
 .DS_Store
+
+# Test scripts and temporary files
+test-*.js
+inspect-*.js
+list-models.js
+read-all-*.js
+*-cards.json
+*-cards-detailed.json
+
+# IDE and editor files
+.cursor/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
