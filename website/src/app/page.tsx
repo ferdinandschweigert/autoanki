@@ -205,9 +205,10 @@ export default function Home() {
             </div>
             <p className="text-sm text-zinc-500">
               Anki MCP Server mit KI-Anreicherung
-            </p>
-            <p className="text-xs text-zinc-400 mt-2">
-              "Adalbert" is a personal project name. No copyright intended.
+              <br />
+              <span className="text-xs text-zinc-400">
+                "Adalbert" is a personal project name. No copyright intended.
+              </span>
             </p>
             <div className="flex gap-4">
               <Button variant="ghost" size="sm" asChild>
