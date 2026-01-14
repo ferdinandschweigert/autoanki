@@ -1,16 +1,86 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { join } from 'path';
-import { pathToFileURL } from 'url';
+
+const ANKICONNECT_URL = 'http://localhost:8765';
+
+async function ankiRequest(request: any): Promise<any> {
+  const response = await fetch(ANKICONNECT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`AnkiConnect error: ${response.statusText}`);
+  }
+  
+  const data = await response.json();
+  
+  if (data.error) {
+    throw new Error(`AnkiConnect error: ${data.error}`);
+  }
+  
+  return data.result;
+}
 
 async function getCardsFromDeck(deckName: string): Promise<any> {
   try {
-    // From website directory, go up one level to root, then to dist
-    const mcpPath = join(process.cwd(), '../dist/tools/getCardsFromDeck.js');
-    const fileUrl = pathToFileURL(mcpPath).href;
-    const { handleGetCardsFromDeck } = await import(fileUrl);
-    const result = await handleGetCardsFromDeck({ deckName });
-    return result;
-  } catch (error) {
+    // Check if AnkiConnect is available
+    try {
+      await ankiRequest({ action: 'version', version: 6 });
+    } catch {
+      throw new Error(
+        'AnkiConnect is not available. Make sure:\n' +
+        '1. Anki Desktop is running\n' +
+        '2. AnkiConnect add-on is installed (code: 2055492159)'
+      );
+    }
+    
+    // Get note IDs from the deck
+    const noteIds = await ankiRequest({
+      action: 'findNotes',
+      version: 6,
+      params: { query: `deck:"${deckName}"` },
+    });
+    
+    if (noteIds.length === 0) {
+      return { cards: [], count: 0 };
+    }
+    
+    // Get notes info
+    const notesInfo = await ankiRequest({
+      action: 'notesInfo',
+      version: 6,
+      params: { notes: noteIds },
+    });
+    
+    // Transform to card format
+    const cards = notesInfo.map((note: any) => {
+      const fields = note.fields || {};
+      const question = fields['Question']?.value || fields['Frage']?.value || fields['Front']?.value || '';
+      const options: string[] = [];
+      for (let i = 1; i <= 5; i++) {
+        const option = fields[`Q_${i}`]?.value || '';
+        if (option && option.trim().length > 0) options.push(option.trim());
+      }
+      const answers = fields['Answers']?.value || fields['Antwort']?.value || fields['Back']?.value || '';
+      const qTypeStr = fields['QType (0=kprim,1=mc,2=sc)']?.value || fields['QType']?.value || '0';
+      const qType = parseInt(qTypeStr) || 0;
+      
+      return {
+        front: question.trim(),
+        back: answers.trim(),
+        question: question.trim(),
+        options,
+        answers: answers.trim(),
+        qType,
+        noteId: note.noteId,
+        tags: note.tags || [],
+        noteType: note.modelName || 'Unknown',
+      };
+    });
+    
+    return { cards, count: cards.length };
+  } catch (error: any) {
     console.error('Error getting cards:', error);
     throw error;
   }
