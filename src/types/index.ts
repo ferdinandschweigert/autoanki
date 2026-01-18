@@ -12,6 +12,7 @@ export interface EnrichedCard {
   erklärung: string;
   eselsbrücke: string;
   referenz: string;  // Quellenangabe (Lehrbuch/Leitlinie)
+  extra1?: string;  // Extra 1 field for additional content
 }
 
 /**
@@ -57,6 +58,8 @@ export interface GeminiResponse {
   eselsbrücke?: string;
   eselsbrucke?: string;  // Alternative spelling
   referenz?: string;
+  extra1?: string;
+  'Extra 1'?: string;
 }
 
 /**

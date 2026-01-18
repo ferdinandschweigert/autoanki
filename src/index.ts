@@ -78,6 +78,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           erklärung: card.erklärung || '',
           eselsbrücke: card.eselsbrücke || '',
           referenz: card.referenz || '',
+          extra1: card.extra1 || '',
         }));
         const result = await handleSyncToAnki({
           deckName: syncArgs.deckName,

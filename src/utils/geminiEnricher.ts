@@ -149,12 +149,20 @@ ${explanationInstructions}
    - "Amboss - [Thema]"
    - "Herold Innere Medizin"
 
+5. EXTRA 1: Zusätzliche Informationen, die für das Verständnis hilfreich sein können, z.B.:
+   - Klinische Relevanz
+   - Differenzialdiagnosen
+   - Praktische Tipps
+   - Wichtige Zusammenhänge
+   - Falls keine zusätzlichen Informationen nötig sind, lasse dieses Feld leer.
+
 Antworte im folgenden JSON-Format:
 {
   "lösung": "${solutionExample}",
   "erklärung": "${explanationExample}",
   "eselsbrücke": "Eselsbrücke hier oder leer lassen wenn nicht sinnvoll",
-  "referenz": "Passende Quelle/Lehrbuch/Leitlinie"
+  "referenz": "Passende Quelle/Lehrbuch/Leitlinie",
+  "extra1": "Zusätzliche Informationen oder leer lassen"
 }`;
 
   try {
@@ -186,6 +194,7 @@ Antworte im folgenden JSON-Format:
       erklärung: fallbackText,
       eselsbrücke: '',
       referenz: '',
+      extra1: '',
     };
   }
 }
@@ -237,6 +246,7 @@ export async function enrichCards(
         erklärung: `Fehler bei der Generierung: ${error.message}`,
         eselsbrücke: '',
         referenz: '',
+        extra1: '',
       });
     }
   }

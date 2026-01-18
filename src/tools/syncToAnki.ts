@@ -24,6 +24,7 @@ export const syncToAnkiTool: Tool = {
             erklärung: { type: 'string' },
             eselsbrücke: { type: 'string' },
             referenz: { type: 'string' },
+            extra1: { type: 'string' },
           },
           required: ['front', 'back'],
         },
@@ -63,6 +64,7 @@ export async function handleSyncToAnki(args: {
       erklärung: card.erklärung,
       eselsbrücke: card.eselsbrücke,
       referenz: card.referenz,
+      extra1: card.extra1 || '',
       tags: args.tags || [],
     }))
   );

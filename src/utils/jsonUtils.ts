@@ -49,11 +49,13 @@ export function normalizeGeminiResponse(parsed: GeminiResponse, fallbackBack: st
   erklärung: string;
   eselsbrücke: string;
   referenz: string;
+  extra1: string;
 } {
   return {
     lösung: parsed.lösung || parsed.loesung || parsed.antwort || fallbackBack,
     erklärung: parsed.erklärung || parsed.erklarung || '',
     eselsbrücke: parsed.eselsbrücke || parsed.eselsbrucke || '',
     referenz: parsed.referenz || '',
+    extra1: parsed.extra1 || parsed['Extra 1'] || '',
   };
 }

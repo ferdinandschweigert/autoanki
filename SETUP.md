@@ -75,6 +75,28 @@ Once Cursor restarts, you can ask me (Adalbert):
 
 You never need to run commands manually - just talk to me!
 
+## Anreicherung über die Website (lokal)
+
+Die Website kann Karten direkt anreichern. So gehst du vor:
+
+1. **Anki Desktop** und **AnkiConnect** laufen lassen.
+2. **Website lokal starten:**
+   ```bash
+   cd website && npm install && npm run dev
+   ```
+3. **Gemini API-Key** in `website/.env.local`:
+   ```
+   GEMINI_API_KEY=dein-api-key
+   ```
+   API-Key: https://aistudio.google.com/apikey
+4. Im Browser: http://localhost:3000
+5. Im **Dashboard**:
+   - Deck wählen (z.B. `TUD Klinik::9. Semester::Päd::Altfragen Pädiatrie`)
+   - Im Block **„Karten anreichern“** die Anzahl setzen (z.B. 100)
+   - Auf **„Erste 100 Karten anreichern“** klicken
+6. Pro Batch werden 5 Karten verarbeitet (~1–2 Min. pro Batch). 100 Karten dauern etwa 30–40 Minuten.
+7. Anschließend Vorschau prüfen und mit **„Zu Anki hinzufügen“** ins Ziel-Deck übernehmen (Standard: `Deckname (angereichert)`).
+
 ## Troubleshooting
 
 ### "Cannot connect to Anki Desktop"

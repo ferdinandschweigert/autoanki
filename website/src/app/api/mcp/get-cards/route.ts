@@ -78,7 +78,7 @@ async function getCardsFromDeck(deckName: string): Promise<any> {
     // Transform to card format
     const cards = notesInfo.map((note: any) => {
       const fields = note.fields || {};
-      const question = fields['Question']?.value || fields['Frage']?.value || fields['Front']?.value || '';
+      const question = fields['Question']?.value || fields['Frage']?.value || fields['Front']?.value || fields['Text']?.value || fields['Cloze']?.value || '';
       const options: string[] = [];
       for (let i = 1; i <= 5; i++) {
         const option = fields[`Q_${i}`]?.value || '';
@@ -88,10 +88,11 @@ async function getCardsFromDeck(deckName: string): Promise<any> {
       const qTypeStr = fields['QType (0=kprim,1=mc,2=sc)']?.value || fields['QType']?.value || '0';
       const qType = parseInt(qTypeStr) || 0;
       
+      const front = question.trim() || (fields['Text']?.value || '').trim();
       return {
-        front: question.trim(),
+        front,
         back: answers.trim(),
-        question: question.trim(),
+        question: front,
         options,
         answers: answers.trim(),
         qType,

@@ -94,7 +94,7 @@ export async function createEnrichedNoteType(): Promise<string> {
     version: 6,
     params: {
       modelName,
-      inOrderFields: ['Front', 'Back', 'Original-Antwort', 'Lösung', 'Erklärung', 'Eselsbrücke', 'Referenz'],
+      inOrderFields: ['Front', 'Back', 'Original-Antwort', 'Lösung', 'Erklärung', 'Eselsbrücke', 'Referenz', 'Extra 1'],
       css: `
         .card {
           font-family: Arial, sans-serif;
@@ -153,6 +153,14 @@ export async function createEnrichedNoteType(): Promise<string> {
           font-size: 14px;
           color: #555;
         }
+        .extra1 {
+          background-color: #f3e5f5;
+          padding: 15px;
+          margin-top: 15px;
+          border-left: 4px solid #9c27b0;
+          text-align: left;
+          font-size: 16px;
+        }
       `,
       cardTemplates: [
         {
@@ -192,6 +200,12 @@ export async function createEnrichedNoteType(): Promise<string> {
               <strong>📖 REFERENZ:</strong> {{Referenz}}
             </div>
             {{/Referenz}}
+            {{#Extra 1}}
+            <div class="extra1">
+              <strong>📝 EXTRA 1:</strong><br>
+              {{Extra 1}}
+            </div>
+            {{/Extra 1}}
           `,
         },
       ],
@@ -213,7 +227,8 @@ export async function addNote(
   erklärung?: string,
   eselsbrücke?: string,
   tagsOrReferenz?: string[] | string,
-  referenz?: string
+  referenz?: string,
+  extra1?: string
 ): Promise<number> {
   // Ensure enriched note type exists
   const modelName = await createEnrichedNoteType();
@@ -242,6 +257,7 @@ export async function addNote(
           Erklärung: erklärung || '',
           Eselsbrücke: eselsbrücke || '',
           Referenz: referenzValue,
+          'Extra 1': extra1 || '',
         },
         tags,
       },
@@ -262,6 +278,7 @@ export async function addNotes(
     erklärung?: string;
     eselsbrücke?: string;
     referenz?: string;
+    extra1?: string;
     tags?: string[];
   }>
 ): Promise<number[]> {
@@ -296,6 +313,7 @@ export async function addNotes(
             Erklärung: note.erklärung || '',
             Eselsbrücke: note.eselsbrücke || '',
             Referenz: note.referenz || '',
+            'Extra 1': note.extra1 || '',
           },
           tags: note.tags || [],
         })),
@@ -342,8 +360,9 @@ export async function getCardsFromDeck(deckName: string): Promise<AnkiCardFromDe
     // Extract fields - AnkiConnect returns fields as an object
     const fields = note.fields || {};
     
-    // Extract Question field
-    const question = fields['Question']?.value || fields['Frage']?.value || fields['Front']?.value || '';
+    // Extract Question field - check multiple possible field names
+    const question = fields['Question']?.value || fields['Frage']?.value || fields['Front']?.value || 
+                     fields['Text']?.value || fields['Cloze']?.value || '';
     
     // Extract Options (Q_1 to Q_5)
     const options: string[] = [];
@@ -362,7 +381,8 @@ export async function getCardsFromDeck(deckName: string): Promise<AnkiCardFromDe
     const qType = parseInt(qTypeStr) || 0;
     
     // For backward compatibility, use Question as front and Answers as back
-    const front = question.trim();
+    // For cloze cards, use Text field as front if available
+    const front = question.trim() || (fields['Text']?.value || '').trim();
     const back = answers.trim();
     
     cards.push({
