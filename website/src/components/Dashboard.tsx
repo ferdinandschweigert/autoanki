@@ -132,6 +132,37 @@ export default function Dashboard() {
   const selectedProfileHint = LLM_PROFILES.find((profile) => profile.value === llmProfile)?.hint;
   const presetModel = MODEL_PRESETS[llmProvider][llmProfile];
 
+  // Resume-Funktionalität: Fortschritt im localStorage speichern
+  const getStorageKey = (deck: string) => `enrichment_${deck.replace(/[^a-zA-Z0-9]/g, '_')}`;
+  
+  const saveProgress = (deck: string, cards: EnrichedCard[]) => {
+    try {
+      localStorage.setItem(getStorageKey(deck), JSON.stringify({ cards, timestamp: Date.now() }));
+    } catch (e) {
+      console.warn('Could not save progress to localStorage', e);
+    }
+  };
+  
+  const loadProgress = (deck: string): { cards: EnrichedCard[]; timestamp: number } | null => {
+    try {
+      const data = localStorage.getItem(getStorageKey(deck));
+      if (!data) return null;
+      return JSON.parse(data);
+    } catch (e) {
+      return null;
+    }
+  };
+  
+  const clearProgress = (deck: string) => {
+    try {
+      localStorage.removeItem(getStorageKey(deck));
+    } catch (e) {
+      console.warn('Could not clear progress', e);
+    }
+  };
+  
+  const [savedProgress, setSavedProgress] = useState<{ cards: EnrichedCard[]; timestamp: number } | null>(null);
+
   const loadDecks = async () => {
     if (isHosted) return;
     setLoading(true);
@@ -209,20 +240,44 @@ export default function Dashboard() {
   useEffect(() => {
     if (selectedDeck) {
       setSyncTargetDeck(`${selectedDeck} (angereichert)`);
+      // Gespeicherten Fortschritt laden
+      const progress = loadProgress(selectedDeck);
+      setSavedProgress(progress);
+      if (progress && progress.cards.length > 0) {
+        setEnrichedCards(progress.cards);
+      } else {
+        setEnrichedCards([]);
+      }
+    } else {
+      setSavedProgress(null);
+      setEnrichedCards([]);
     }
     setPrioritySuggestions([]);
     setPriorityMeta(null);
     setPriorityError(null);
   }, [selectedDeck]);
 
-  const runEnrich = async () => {
+  const runEnrich = async (startFresh = false) => {
     if (!selectedDeck || isHosted) return;
     setEnriching(true);
     setEnrichError(null);
-    setEnrichedCards([]);
-    setEnrichProgress({ done: 0, total: enrichLimit });
+    
+    // Bei Neustart oder ohne gespeicherte Daten: von vorne
     let all: EnrichedCard[] = [];
     let offset = 0;
+    
+    if (!startFresh && savedProgress && savedProgress.cards.length > 0) {
+      // Fortsetzen: bereits angereicherte Karten übernehmen
+      all = [...savedProgress.cards];
+      offset = all.length;
+      setEnrichProgress({ done: offset, total: enrichLimit });
+    } else {
+      // Neustart
+      clearProgress(selectedDeck);
+      setEnrichedCards([]);
+      setEnrichProgress({ done: 0, total: enrichLimit });
+    }
+    
     const resolvedModel = llmModelOverride.trim() || presetModel;
     try {
       for (;;) {
@@ -262,17 +317,28 @@ export default function Dashboard() {
         
         all = all.concat(data.enriched || []);
         setEnrichedCards(all);
+        
+        // Fortschritt speichern nach jedem Batch
+        saveProgress(selectedDeck, all);
         setEnrichProgress({ done: data.nextOffset ?? offset + (data.enriched?.length || 0), total: data.total ?? enrichLimit });
         if (!data.hasMore) break;
         offset = data.nextOffset;
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      setEnrichError(msg);
+      setEnrichError(msg + ' – Fortschritt gespeichert, du kannst fortsetzen.');
       console.error('Enrichment error:', e);
+      // Bei Fehler trotzdem speichern was wir haben
+      if (all.length > 0) {
+        saveProgress(selectedDeck, all);
+        setSavedProgress({ cards: all, timestamp: Date.now() });
+      }
     } finally {
       setEnriching(false);
       setEnrichProgress(null);
+      // savedProgress aktualisieren
+      const progress = loadProgress(selectedDeck);
+      setSavedProgress(progress);
     }
   };
 
@@ -546,23 +612,55 @@ export default function Dashboard() {
                   disabled={enriching}
                 />
               </div>
-              <Button
-                onClick={runEnrich}
-                disabled={enriching || !selectedDeck || decks.length === 0}
-              >
-                {enriching ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    {enrichProgress ? ` ${enrichProgress.done}/${enrichProgress.total} …` : ' Anreichern…'}
-                  </>
-                ) : (
-                  <>Erste {enrichLimit} Karten anreichern</>
-                )}
-              </Button>
+              
+              {/* Resume-Buttons wenn Fortschritt vorhanden */}
+              {savedProgress && savedProgress.cards.length > 0 && !enriching ? (
+                <div className="flex gap-2">
+                  <Button
+                    onClick={() => runEnrich(false)}
+                    disabled={enriching || !selectedDeck}
+                  >
+                    Fortsetzen ({savedProgress.cards.length} fertig)
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      clearProgress(selectedDeck);
+                      setSavedProgress(null);
+                      setEnrichedCards([]);
+                    }}
+                    disabled={enriching}
+                  >
+                    Neu starten
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  onClick={() => runEnrich(true)}
+                  disabled={enriching || !selectedDeck || decks.length === 0}
+                >
+                  {enriching ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      {enrichProgress ? ` ${enrichProgress.done}/${enrichProgress.total} …` : ' Anreichern…'}
+                    </>
+                  ) : (
+                    <>Erste {enrichLimit} Karten anreichern</>
+                  )}
+                </Button>
+              )}
             </div>
-            {enrichProgress && !enriching && (
+            
+            {/* Gespeicherter Fortschritt Info */}
+            {savedProgress && savedProgress.cards.length > 0 && !enriching && (
+              <p className="text-sm text-blue-600">
+                💾 {savedProgress.cards.length} Karten gespeichert (vom {new Date(savedProgress.timestamp).toLocaleString('de-DE')})
+              </p>
+            )}
+            
+            {enrichProgress && enriching && (
               <p className="text-sm text-zinc-600">
-                {enrichProgress.done} von {enrichProgress.total} Karten angereichert.
+                {enrichProgress.done} von {enrichProgress.total} Karten angereichert…
               </p>
             )}
 

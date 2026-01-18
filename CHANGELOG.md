@@ -6,6 +6,12 @@ Kurze Übersicht der wichtigsten Änderungen.
 
 ## 01/2026
 
+### Resume-Funktion für Anreicherung
+- **Fortschritt wird automatisch gespeichert** im Browser (localStorage)
+- Bei Netzwerkfehler oder Computer-Schlaf: **Fortsetzen** statt Neustart
+- "Neu starten" Button um von vorne zu beginnen
+- Anzeige des gespeicherten Fortschritts mit Zeitstempel
+
 ### 80/20 Themenliste (LLM)
 - Top 15 **Themen** statt einzelner Fragen, Fokus auf Konzepte
 - LLM-basierte Analyse mit Lernzielen und Begründungen
