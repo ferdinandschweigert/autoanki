@@ -112,7 +112,7 @@ export default function Home() {
                 <CardTitle>2. KI-Anreicherung</CardTitle>
               </CardHeader>
               <CardContent className="text-center text-zinc-600">
-                Generiert deutsche Erklärungen, Eselsbrücken und Referenzen via Gemini API
+                Generiert deutsche Erklärungen, Eselsbrücken und Referenzen via LLM-Provider
               </CardContent>
             </Card>
             <Card className="border-blue-200">

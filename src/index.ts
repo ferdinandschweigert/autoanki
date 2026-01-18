@@ -15,11 +15,16 @@ import { getCardsFromDeckTool, handleGetCardsFromDeck } from './tools/getCardsFr
 import { createJsonResponse } from './utils/responseUtils.js';
 import { EnrichedCard } from './types/index.js';
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const HAS_LLM_KEY = Boolean(
+  process.env.GEMINI_API_KEY ||
+  process.env.OPENAI_API_KEY ||
+  process.env.TOGETHER_API_KEY ||
+  process.env.LLM_API_KEY
+);
 
-if (!GEMINI_API_KEY) {
-  console.error('Warning: GEMINI_API_KEY environment variable is not set');
-  console.error('Card enrichment will not work without it.');
+if (!HAS_LLM_KEY) {
+  console.error('Warning: No LLM API key configured.');
+  console.error('Set GEMINI_API_KEY, OPENAI_API_KEY, TOGETHER_API_KEY, or LLM_API_KEY.');
 }
 
 // Create MCP server
@@ -54,12 +59,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'enrich_cards': {
-        if (!GEMINI_API_KEY) {
-          throw new Error('GEMINI_API_KEY environment variable is not set');
-        }
         const result = await handleEnrichCards(
-          args as { cards: Array<{ front: string; back: string; options?: string[]; answers?: string }> },
-          GEMINI_API_KEY
+          args as {
+            cards: Array<{ front: string; back: string; options?: string[]; answers?: string }>;
+            provider?: string;
+            model?: string;
+            apiKey?: string;
+            baseUrl?: string;
+            fallbackProviders?: string[];
+            requestDelayMs?: number;
+          }
         );
         return createJsonResponse(result);
       }

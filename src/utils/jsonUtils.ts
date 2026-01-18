@@ -24,6 +24,49 @@ export function extractJsonFromText(text: string): string {
   return jsonText;
 }
 
+function sanitizeJsonString(jsonText: string): string {
+  let out = '';
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < jsonText.length; i++) {
+    const ch = jsonText[i];
+    if (inString) {
+      if (escaped) {
+        out += ch;
+        escaped = false;
+        continue;
+      }
+      if (ch === '\\') {
+        out += ch;
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') {
+        out += ch;
+        inString = false;
+        continue;
+      }
+      const code = ch.charCodeAt(0);
+      if (code < 0x20) {
+        if (ch === '\n') out += '\\n';
+        else if (ch === '\r') out += '\\r';
+        else if (ch === '\t') out += '\\t';
+        else out += '';
+        continue;
+      }
+      out += ch;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      out += ch;
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+
 /**
  * Parse Gemini API response with fallback handling
  */
@@ -33,7 +76,12 @@ export function parseGeminiResponse(
 ): GeminiResponse {
   try {
     const jsonText = extractJsonFromText(text);
-    return JSON.parse(jsonText) as GeminiResponse;
+    try {
+      return JSON.parse(jsonText) as GeminiResponse;
+    } catch (error) {
+      const sanitized = sanitizeJsonString(jsonText);
+      return JSON.parse(sanitized) as GeminiResponse;
+    }
   } catch (error: any) {
     console.error(`JSON parsing error: ${error.message}`);
     console.error(`Response text (first 500 chars): ${text.substring(0, 500)}`);

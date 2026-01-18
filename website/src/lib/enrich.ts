@@ -2,7 +2,11 @@
  * Enrichment logic for Anki cards (mirrors src/utils/geminiEnricher + jsonUtils)
  */
 
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { buildLlmConfig, generateTextWithFallback, LlmConfig, LlmOverrides } from './llmClient';
+
+export interface EnrichLlmOptions extends LlmOverrides {
+  requestDelayMs?: number;
+}
 
 export interface EnrichedCard {
   front: string;
@@ -37,9 +41,57 @@ function extractJsonFromText(text: string): string {
   return jsonMatch ? jsonMatch[0] : jsonText;
 }
 
+function sanitizeJsonString(jsonText: string): string {
+  let out = '';
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < jsonText.length; i++) {
+    const ch = jsonText[i];
+    if (inString) {
+      if (escaped) {
+        out += ch;
+        escaped = false;
+        continue;
+      }
+      if (ch === '\\') {
+        out += ch;
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') {
+        out += ch;
+        inString = false;
+        continue;
+      }
+      const code = ch.charCodeAt(0);
+      if (code < 0x20) {
+        if (ch === '\n') out += '\\n';
+        else if (ch === '\r') out += '\\r';
+        else if (ch === '\t') out += '\\t';
+        else out += '';
+        continue;
+      }
+      out += ch;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      out += ch;
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+
 function parseGeminiResponse(text: string, fallbackBack: string): GeminiResponse {
   const jsonText = extractJsonFromText(text);
-  return JSON.parse(jsonText) as GeminiResponse;
+  try {
+    return JSON.parse(jsonText) as GeminiResponse;
+  } catch {
+    const sanitized = sanitizeJsonString(jsonText);
+    return JSON.parse(sanitized) as GeminiResponse;
+  }
 }
 
 function normalizeGeminiResponse(parsed: GeminiResponse, fallbackBack: string) {
@@ -68,16 +120,27 @@ function parseAnswerBits(value: string): string[] {
   return bits;
 }
 
+function resolveRequestDelayMs(override?: number): number {
+  if (typeof override === 'number' && Number.isFinite(override)) {
+    return Math.max(0, override);
+  }
+  const raw = process.env.LLM_REQUEST_DELAY_MS;
+  if (raw) {
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed)) {
+      return Math.max(0, parsed);
+    }
+  }
+  return 15000;
+}
+
 export async function enrichCard(
   front: string,
   back: string,
-  apiKey: string,
+  llmConfig: LlmConfig,
   options?: string[],
   answers?: string
 ): Promise<EnrichedCard> {
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
-
   const optionsList = options ?? [];
   const hasOptions = optionsList.some((o) => o && o.trim().length > 0);
   let optionsText = '';
@@ -113,24 +176,24 @@ export async function enrichCard(
 
   const formatIntro = hasOptions
     ? hasBinary
-      ? 'WICHTIG - Dies ist eine Multiple-Choice Frage mit den oben genannten Optionen und dem angegebenen Binärcode! Bitte erstelle die Erklärung im folgenden EXAKTEN Format:'
-      : 'WICHTIG - Dies ist eine Multiple-Choice Frage mit den oben genannten Optionen! Bitte bestimme die richtigen Antworten und erstelle die Erklärung im folgenden EXAKTEN Format:'
-    : 'WICHTIG - Dies ist eine Lernkarte ohne Antwortoptionen. Bitte erstelle die Erklärung im folgenden EXAKTEN Format:';
+      ? 'WICHTIG - Multiple-Choice mit Binärcode. Antworte sehr kurz, strukturiert und extrem informativ.'
+      : 'WICHTIG - Multiple-Choice. Antworte sehr kurz, strukturiert und extrem informativ.'
+    : 'WICHTIG - Keine Antwortoptionen. Antworte sehr kurz, strukturiert und extrem informativ.';
 
   const solutionInstructions = hasOptions
     ? hasBinary
-      ? '1. LÖSUNG: Beginne mit "Die richtige Antwort lautet: [Liste der richtigen Optionen]."\n   - Verwende die oben angegebenen richtigen Antworten aus dem Binärcode\n   - Falls die Frage nach "trifft nicht zu" fragt, identifiziere welche Aussage NICHT zutrifft'
-      : '1. LÖSUNG: Beginne mit "Die richtige Antwort lautet: [Liste der richtigen Optionen]."\n   - Bestimme die richtigen Optionen aus dem Inhalt der Frage\n   - Falls die Frage nach "trifft nicht zu" fragt, identifiziere welche Aussage NICHT zutrifft'
-    : '1. LÖSUNG: Beginne mit "Die richtige Antwort lautet: [Kurzantwort]."\n   - Antworte kurz und präzise';
+      ? '1. LÖSUNG: Eine Zeile: "Die richtige Antwort lautet: [Liste]." (aus dem Binärcode)'
+      : '1. LÖSUNG: Eine Zeile: "Die richtige Antwort lautet: [Liste]."'
+    : '1. LÖSUNG: Eine Zeile: "Die richtige Antwort lautet: [Kurzantwort]."';
 
   const explanationInstructions = hasOptions
-    ? '2. ERKLÄRUNG: Strukturiere die Erklärung wie folgt:\n   a) Zuerst eine allgemeine Einführung zum Konzept/Erkrankung (2-3 Sätze)\n   b) Dann "Erläuterung der richtigen Antwort(en):" - erkläre detailliert warum jede richtige Option richtig ist\n   c) Dann "Warum die anderen Optionen nicht korrekt sind:" - erkläre für jede falsche Option warum sie falsch ist'
-    : '2. ERKLÄRUNG: Strukturiere die Erklärung wie folgt:\n   a) Zuerst eine allgemeine Einführung zum Konzept/Erkrankung (2-3 Sätze)\n   b) Dann "Erläuterung der Antwort:" - erkläre warum die Antwort korrekt ist (2-4 Sätze)';
+    ? '2. ERKLÄRUNG: Max. 3 sehr kurze Zeilen mit Labels:\n   Überblick: ...\n   Richtig: Option X – Grund; Option Y – Grund\n   Falsch: Option Z – Grund'
+    : '2. ERKLÄRUNG: Max. 2 sehr kurze Zeilen mit Labels:\n   Überblick: ...\n   Warum korrekt: ...';
 
   const solutionExample = hasOptions ? 'Die richtige Antwort lautet: [Liste der richtigen Optionen].' : 'Die richtige Antwort lautet: [Kurzantwort].';
   const explanationExample = hasOptions
-    ? '[Allgemeine Einführung]. Erläuterung der richtigen Antwort(en): [...]. Warum die anderen Optionen nicht korrekt sind: [...].'
-    : '[Allgemeine Einführung]. Erläuterung der Antwort: [...].';
+    ? 'Überblick: ... | Richtig: ... | Falsch: ...'
+    : 'Überblick: ... | Warum korrekt: ...';
 
   const prompt = `Du bist ein hilfreicher Tutor für Universitätsprüfungen.
 Ergänze die folgende Lernkarte mit einer klaren, strukturierten Erklärung auf Deutsch.
@@ -143,11 +206,11 @@ ${solutionInstructions}
 
 ${explanationInstructions}
 
-3. ESELSBRÜCKE: Eine Eselsbrücke (falls sinnvoll), die beim Merken hilft. Wenn keine gute Eselsbrücke möglich ist, lasse dieses Feld leer.
+3. ESELSBRÜCKE: Falls sinnvoll, maximal ein kurzer Satz. Sonst leer.
 
 4. REFERENZ: Gib eine passende Referenz an, z.B. ein Standardlehrbuch oder eine Leitlinie.
 
-5. EXTRA 1: Zusätzliche Informationen, die für das Verständnis hilfreich sein können (Klinische Relevanz, Differenzialdiagnosen, Praktische Tipps). Falls nicht nötig, leer lassen.
+5. EXTRA 1: Optional, maximal ein kurzer Satz (z.B. klinischer Hinweis). Sonst leer.
 
 Antworte im folgenden JSON-Format:
 {
@@ -159,18 +222,21 @@ Antworte im folgenden JSON-Format:
 }`;
 
   try {
-    const result = await model.generateContent(prompt);
-    const text = (await result.response).text();
+    const text = await generateTextWithFallback(prompt, llmConfig);
     const parsed = parseGeminiResponse(text, back);
     const n = normalizeGeminiResponse(parsed, back);
     return { front, back: back || '', ...n };
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
+    const lowered = msg.toLowerCase();
+    const isRateLimit = lowered.includes('429') || lowered.includes('quota') || lowered.includes('rate limit');
     return {
       front,
       back: back || '',
       lösung: back || '',
-      erklärung: `Fehler bei der Generierung: ${msg}`,
+      erklärung: isRateLimit
+        ? '⚠️ Rate limit/Quota erreicht. Bitte später erneut versuchen oder einen anderen Provider/Key nutzen.'
+        : `Fehler bei der Generierung: ${msg}`,
       eselsbrücke: '',
       referenz: '',
       extra1: '',
@@ -178,23 +244,51 @@ Antworte im folgenden JSON-Format:
   }
 }
 
-/** Enrich multiple cards with rate limiting (free tier ~5/min → ~14s between cards) */
+function isRateLimitMessage(text: string): boolean {
+  const lowered = text.toLowerCase();
+  return lowered.includes('rate limit') || lowered.includes('quota') || lowered.includes('429');
+}
+
+/** Enrich multiple cards with rate limiting */
 export async function enrichCards(
   cards: Array<{ front: string; back: string; options?: string[]; answers?: string }>,
-  apiKey: string,
+  llmOptions?: EnrichLlmOptions,
   onProgress?: (current: number, total: number) => void
 ): Promise<EnrichedCard[]> {
   const out: EnrichedCard[] = [];
-  const delayMs = 14000; // ~4/min to stay under 5/min
+  const llmConfig = buildLlmConfig(llmOptions);
+  const delayMs = resolveRequestDelayMs(llmOptions?.requestDelayMs);
 
   for (let i = 0; i < cards.length; i++) {
     const c = cards[i];
-    const e = await enrichCard(c.front, c.back, apiKey, c.options, c.answers);
+    const e = await enrichCard(c.front, c.back, llmConfig, c.options, c.answers);
     // Optionen mit übernehmen
     out.push({ ...e, options: c.options });
     onProgress?.(i + 1, cards.length);
+    
+    // Bei Rate-Limit/Quota optional stoppen
+    if (isRateLimitMessage(e.erklärung)) {
+      console.warn('Rate limit/Quota erreicht, stoppe weitere Anreicherung');
+      // Restliche Karten mit Fehlermeldung hinzufügen
+      for (let j = i + 1; j < cards.length; j++) {
+        out.push({
+          front: cards[j].front,
+          back: cards[j].back || '',
+          options: cards[j].options,
+          lösung: cards[j].back || '',
+          erklärung: '⚠️ Anreicherung gestoppt: Rate limit/Quota erreicht.',
+          eselsbrücke: '',
+          referenz: '',
+          extra1: '',
+        });
+      }
+      break;
+    }
+    
     if (i < cards.length - 1) {
-      await new Promise((r) => setTimeout(r, delayMs));
+      if (delayMs > 0) {
+        await new Promise((r) => setTimeout(r, delayMs));
+      }
     }
   }
   return out;

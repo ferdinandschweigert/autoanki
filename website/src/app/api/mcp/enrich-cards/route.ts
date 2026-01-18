@@ -84,18 +84,27 @@ export async function POST(request: NextRequest) {
     const deckName = sanitize(body.deckName || '');
     const limit = Math.min(Math.max(1, parseInt(String(body.limit || 100), 10) || 100), 500);
     const offset = Math.max(0, parseInt(String(body.offset || 0), 10) || 0);
+    const fallbackProviders = Array.isArray(body.fallbackProviders)
+      ? body.fallbackProviders
+      : typeof body.fallbackProviders === 'string'
+        ? body.fallbackProviders.split(',').map((s: string) => s.trim()).filter(Boolean)
+        : undefined;
+    const requestDelayMs = Number.isFinite(Number(body.requestDelayMs))
+      ? Number(body.requestDelayMs)
+      : undefined;
 
     if (!deckName) {
       return NextResponse.json({ error: 'deckName is required' }, { status: 400 });
     }
 
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json(
-        { error: 'GEMINI_API_KEY is not set. Bitte in .env.local setzen.' },
-        { status: 500 }
-      );
-    }
+    const llmOverrides = {
+      provider: body.provider,
+      model: body.model,
+      apiKey: body.apiKey,
+      baseUrl: body.baseUrl,
+      fallbackProviders,
+      requestDelayMs,
+    };
 
     await ankiRequest({ action: 'version', version: 6 });
 
@@ -131,7 +140,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const enriched = await enrichCards(batch, apiKey);
+    const enriched = await enrichCards(batch, llmOverrides);
     const nextOffset = offset + batch.length;
     const hasMore = nextOffset < total;
 

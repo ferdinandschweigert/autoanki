@@ -42,6 +42,45 @@ interface EnrichedCard {
   extra1?: string;
 }
 
+type LlmProvider = 'gemini' | 'together' | 'openai' | 'openai-compatible';
+type LlmProfile = 'speed' | 'balanced' | 'quality';
+
+const LLM_PROFILES: Array<{ value: LlmProfile; label: string; hint: string }> = [
+  { value: 'speed', label: 'Schnell', hint: 'Schnellste Antwort, geringere Detailtiefe' },
+  { value: 'balanced', label: 'Ausgewogen', hint: 'Guter Mittelweg zwischen Tempo und Qualität' },
+  { value: 'quality', label: 'Qualität', hint: 'Beste Erklärungen, langsamer/teurer' },
+];
+
+const LLM_PROVIDERS: Array<{ value: LlmProvider; label: string; note?: string }> = [
+  { value: 'gemini', label: 'Gemini' },
+  { value: 'together', label: 'TogetherAI' },
+  { value: 'openai', label: 'OpenAI' },
+  { value: 'openai-compatible', label: 'OpenAI-kompatibel', note: 'Base URL via .env' },
+];
+
+const MODEL_PRESETS: Record<LlmProvider, Record<LlmProfile, string>> = {
+  gemini: {
+    speed: 'gemini-1.5-flash',
+    balanced: 'gemini-2.5-flash',
+    quality: 'gemini-2.5-pro',
+  },
+  together: {
+    speed: 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo',
+    balanced: 'meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo',
+    quality: 'meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo',
+  },
+  openai: {
+    speed: 'gpt-4o-mini',
+    balanced: 'gpt-4o',
+    quality: 'gpt-4o',
+  },
+  'openai-compatible': {
+    speed: 'gpt-4o-mini',
+    balanced: 'gpt-4o',
+    quality: 'gpt-4o',
+  },
+};
+
 export default function Dashboard() {
   const [decks, setDecks] = useState<Deck[]>([]);
   const [selectedDeck, setSelectedDeck] = useState<string>('');
@@ -57,10 +96,16 @@ export default function Dashboard() {
   const [enrichProgress, setEnrichProgress] = useState<{ done: number; total: number } | null>(null);
   const [enrichedCards, setEnrichedCards] = useState<EnrichedCard[]>([]);
   const [enrichError, setEnrichError] = useState<string | null>(null);
+  const [llmProvider, setLlmProvider] = useState<LlmProvider>('gemini');
+  const [llmProfile, setLlmProfile] = useState<LlmProfile>('balanced');
+  const [llmModelOverride, setLlmModelOverride] = useState('');
   const [syncTargetDeck, setSyncTargetDeck] = useState('');
   const [syncLoading, setSyncLoading] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [expandedCard, setExpandedCard] = useState<number | null>(null);
+  const selectedProviderNote = LLM_PROVIDERS.find((provider) => provider.value === llmProvider)?.note;
+  const selectedProfileHint = LLM_PROFILES.find((profile) => profile.value === llmProfile)?.hint;
+  const presetModel = MODEL_PRESETS[llmProvider][llmProfile];
 
   const loadDecks = async () => {
     if (isHosted) return;
@@ -150,6 +195,7 @@ export default function Dashboard() {
     setEnrichProgress({ done: 0, total: enrichLimit });
     let all: EnrichedCard[] = [];
     let offset = 0;
+    const resolvedModel = llmModelOverride.trim() || presetModel;
     try {
       for (;;) {
         const controller = new AbortController();
@@ -160,7 +206,13 @@ export default function Dashboard() {
           res = await fetch('/api/mcp/enrich-cards', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ deckName: selectedDeck, limit: enrichLimit, offset }),
+            body: JSON.stringify({
+              deckName: selectedDeck,
+              limit: enrichLimit,
+              offset,
+              provider: llmProvider,
+              model: resolvedModel,
+            }),
             signal: controller.signal,
           });
         } catch (fetchError: unknown) {
@@ -312,14 +364,25 @@ export default function Dashboard() {
               Karten anreichern
             </CardTitle>
             <CardDescription>
-              KI-Erklärungen, Eselsbrücken und Referenzen für ein Deck generieren (Gemini). Pro Batch 5 Karten, ~1–2 Min. pro Batch.
+              KI-Erklärungen, Eselsbrücken und Referenzen generieren. Wähle Provider und Profil für Tempo/Qualität. Pro Batch 5 Karten, ~1–2 Min. pro Batch.
+              <br />
+              <span className="text-xs text-amber-600 mt-1 block">
+                ⚠️ Limits hängen vom Provider/Plan ab. Bei Quota/Ratelimit bitte später erneut versuchen oder Provider/Key wechseln.
+              </span>
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {enrichError && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-700">
-                <AlertCircle className="h-4 w-4" />
-                <span className="text-sm">{enrichError}</span>
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2 text-red-700">
+                <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <div className="text-sm">
+                  <p className="font-medium mb-1">{enrichError}</p>
+                  {enrichError.includes('quota') || enrichError.includes('429') || enrichError.includes('limit') ? (
+                    <p className="text-xs text-red-600 mt-1">
+                      💡 Tipp: Provider-Quota erreicht. Bitte später erneut versuchen oder einen anderen Provider/Key nutzen.
+                    </p>
+                  ) : null}
+                </div>
               </div>
             )}
 
@@ -344,6 +407,61 @@ export default function Dashboard() {
                 </div>
               </div>
             )}
+
+            <div className="grid gap-4 md:grid-cols-3">
+              <div>
+                <label className="block text-sm font-medium text-zinc-700 mb-1">LLM-Provider</label>
+                <select
+                  value={llmProvider}
+                  onChange={(e) => setLlmProvider(e.target.value as LlmProvider)}
+                  className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  disabled={enriching}
+                >
+                  {LLM_PROVIDERS.map((provider) => (
+                    <option key={provider.value} value={provider.value}>
+                      {provider.label}
+                    </option>
+                  ))}
+                </select>
+                {selectedProviderNote && (
+                  <p className="text-xs text-zinc-500 mt-1">
+                    {selectedProviderNote}
+                  </p>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-zinc-700 mb-1">Qualitätsprofil</label>
+                <select
+                  value={llmProfile}
+                  onChange={(e) => setLlmProfile(e.target.value as LlmProfile)}
+                  className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  disabled={enriching}
+                >
+                  {LLM_PROFILES.map((profile) => (
+                    <option key={profile.value} value={profile.value}>
+                      {profile.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-zinc-500 mt-1">
+                  {selectedProfileHint}
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-zinc-700 mb-1">Modell (optional)</label>
+                <input
+                  type="text"
+                  value={llmModelOverride}
+                  onChange={(e) => setLlmModelOverride(e.target.value)}
+                  placeholder={presetModel}
+                  className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  disabled={enriching}
+                />
+                <p className="text-xs text-zinc-500 mt-1">
+                  Empfohlen: {presetModel}
+                </p>
+              </div>
+            </div>
 
             <div className="flex flex-wrap items-end gap-4">
               <div>

@@ -1,6 +1,24 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { EnrichedCard } from '../types/index.js';
 import { parseGeminiResponse, normalizeGeminiResponse } from './jsonUtils.js';
+import { buildLlmConfig, generateTextWithFallback, LlmConfig, LlmOverrides } from './llmClient.js';
+
+export interface EnrichLlmOptions extends LlmOverrides {
+  requestDelayMs?: number;
+}
+
+function resolveRequestDelayMs(override?: number): number {
+  if (typeof override === 'number' && Number.isFinite(override)) {
+    return Math.max(0, override);
+  }
+  const raw = process.env.LLM_REQUEST_DELAY_MS;
+  if (raw) {
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed)) {
+      return Math.max(0, parsed);
+    }
+  }
+  return 500;
+}
 
 function isBinaryAnswerString(value: string): boolean {
   const trimmed = value.trim();
@@ -31,19 +49,15 @@ function parseAnswerBits(value: string): string[] {
 }
 
 /**
- * Enrich a single card with German explanations using Gemini API
+ * Enrich a single card with German explanations using an LLM API
  */
 export async function enrichCard(
   front: string,
   back: string,
-  apiKey: string,
+  llmConfig: LlmConfig,
   options?: string[],
   answers?: string
 ): Promise<EnrichedCard> {
-  const genAI = new GoogleGenerativeAI(apiKey);
-  // Use gemini-2.5-flash (free tier) instead of gemini-pro-latest (which maps to gemini-2.5-pro, not free)
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
-  
   // Build options list if available
   const optionsList = options ?? [];
   const hasOptions = optionsList.some(opt => opt && opt.trim().length > 0);
@@ -95,39 +109,23 @@ export async function enrichCard(
       : '';
   const formatIntro = hasOptions
     ? hasBinaryAnswers
-      ? 'WICHTIG - Dies ist eine Multiple-Choice Frage mit den oben genannten Optionen und dem angegebenen Binärcode! Bitte erstelle die Erklärung im folgenden EXAKTEN Format:'
-      : 'WICHTIG - Dies ist eine Multiple-Choice Frage mit den oben genannten Optionen! Bitte bestimme die richtigen Antworten und erstelle die Erklärung im folgenden EXAKTEN Format:'
-    : 'WICHTIG - Dies ist eine Lernkarte ohne Antwortoptionen. Bitte erstelle die Erklärung im folgenden EXAKTEN Format:';
+      ? 'WICHTIG - Multiple-Choice mit Binärcode. Antworte sehr kurz, strukturiert und extrem informativ.'
+      : 'WICHTIG - Multiple-Choice. Antworte sehr kurz, strukturiert und extrem informativ.'
+    : 'WICHTIG - Keine Antwortoptionen. Antworte sehr kurz, strukturiert und extrem informativ.';
   const solutionInstructions = hasOptions
     ? hasBinaryAnswers
-      ? `1. LÖSUNG: Beginne mit "Die richtige Antwort lautet: [Liste der richtigen Optionen]." 
-   - Verwende die oben angegebenen richtigen Antworten aus dem Binärcode
-   - Falls die Frage nach "trifft nicht zu" fragt, identifiziere welche Aussage NICHT zutrifft`
-      : `1. LÖSUNG: Beginne mit "Die richtige Antwort lautet: [Liste der richtigen Optionen]." 
-   - Bestimme die richtigen Optionen aus dem Inhalt der Frage
-   - Falls die Frage nach "trifft nicht zu" fragt, identifiziere welche Aussage NICHT zutrifft`
-    : `1. LÖSUNG: Beginne mit "Die richtige Antwort lautet: [Kurzantwort]." 
-   - Antworte kurz und präzise`;
+      ? '1. LÖSUNG: Eine Zeile: "Die richtige Antwort lautet: [Liste]." (aus dem Binärcode)'
+      : '1. LÖSUNG: Eine Zeile: "Die richtige Antwort lautet: [Liste]."'
+    : '1. LÖSUNG: Eine Zeile: "Die richtige Antwort lautet: [Kurzantwort]."';
   const explanationInstructions = hasOptions
-    ? `2. ERKLÄRUNG: Strukturiere die Erklärung wie folgt:
-   a) Zuerst eine allgemeine Einführung zum Konzept/Erkrankung (2-3 Sätze)
-   b) Dann "Erläuterung der richtigen Antwort(en):" - erkläre detailliert warum jede richtige Option richtig ist (für jede richtige Option 1-2 Sätze)
-   c) Dann "Warum die anderen Optionen nicht korrekt sind:" - erkläre für jede falsche Option warum sie falsch ist (für jede falsche Option 1-2 Sätze)
-   
-   Beispiel-Struktur:
-   "[Allgemeine Einführung]. Erläuterung der richtigen Antwort(en): Option 1 ist richtig, weil... Option 2 ist richtig, weil... Warum die anderen Optionen nicht korrekt sind: Option 3 ist falsch, weil... Option 4 ist falsch, weil..."`
-    : `2. ERKLÄRUNG: Strukturiere die Erklärung wie folgt:
-   a) Zuerst eine allgemeine Einführung zum Konzept/Erkrankung (2-3 Sätze)
-   b) Dann "Erläuterung der Antwort:" - erkläre warum die Antwort korrekt ist (2-4 Sätze)
-   
-   Beispiel-Struktur:
-   "[Allgemeine Einführung]. Erläuterung der Antwort: ..."`;
+    ? '2. ERKLÄRUNG: Max. 3 sehr kurze Zeilen mit Labels:\n   Überblick: ...\n   Richtig: Option X – Grund; Option Y – Grund\n   Falsch: Option Z – Grund'
+    : '2. ERKLÄRUNG: Max. 2 sehr kurze Zeilen mit Labels:\n   Überblick: ...\n   Warum korrekt: ...';
   const solutionExample = hasOptions
     ? 'Die richtige Antwort lautet: [Liste der richtigen Optionen].'
     : 'Die richtige Antwort lautet: [Kurzantwort].';
   const explanationExample = hasOptions
-    ? '[Allgemeine Einführung]. Erläuterung der richtigen Antwort(en): [Warum jede richtige Option richtig ist]. Warum die anderen Optionen nicht korrekt sind: [Warum jede falsche Option falsch ist].'
-    : '[Allgemeine Einführung]. Erläuterung der Antwort: [Warum die Antwort korrekt ist].';
+    ? 'Überblick: ... | Richtig: ... | Falsch: ...'
+    : 'Überblick: ... | Warum korrekt: ...';
 
   const prompt = `Du bist ein hilfreicher Tutor für Universitätsprüfungen. 
 Ergänze die folgende Lernkarte mit einer klaren, strukturierten Erklärung auf Deutsch.
@@ -140,7 +138,7 @@ ${solutionInstructions}
 
 ${explanationInstructions}
 
-3. ESELSBRÜCKE: Eine Eselsbrücke (falls sinnvoll), die beim Merken hilft. Wenn keine gute Eselsbrücke möglich ist, lasse dieses Feld leer.
+3. ESELSBRÜCKE: Falls sinnvoll, maximal ein kurzer Satz. Sonst leer.
 
 4. REFERENZ: Gib eine passende Referenz an, z.B. ein Standardlehrbuch oder eine Leitlinie. Beispiele:
    - "Duale Reihe Orthopädie, Kapitel [Thema]"
@@ -149,12 +147,7 @@ ${explanationInstructions}
    - "Amboss - [Thema]"
    - "Herold Innere Medizin"
 
-5. EXTRA 1: Zusätzliche Informationen, die für das Verständnis hilfreich sein können, z.B.:
-   - Klinische Relevanz
-   - Differenzialdiagnosen
-   - Praktische Tipps
-   - Wichtige Zusammenhänge
-   - Falls keine zusätzlichen Informationen nötig sind, lasse dieses Feld leer.
+5. EXTRA 1: Optional, maximal ein kurzer Satz (z.B. klinischer Hinweis). Sonst leer.
 
 Antworte im folgenden JSON-Format:
 {
@@ -166,9 +159,7 @@ Antworte im folgenden JSON-Format:
 }`;
 
   try {
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
+    const text = await generateTextWithFallback(prompt, llmConfig);
     
     // Parse and normalize the response
     const parsed = parseGeminiResponse(text, back);
@@ -180,7 +171,7 @@ Antworte im folgenden JSON-Format:
       ...normalized,
     };
   } catch (error: any) {
-    console.error(`Gemini API Error: ${error.message}`);
+    console.error(`LLM API Error: ${error.message}`);
     
     // Fallback if API fails
     const fallbackText = error.message.includes('parse') 
@@ -209,10 +200,12 @@ export async function enrichCards(
     options?: string[]; 
     answers?: string;
   }>,
-  apiKey: string,
+  llmOptions?: EnrichLlmOptions,
   onProgress?: (current: number, total: number) => void
 ): Promise<EnrichedCard[]> {
   const enriched: EnrichedCard[] = [];
+  const llmConfig = buildLlmConfig(llmOptions);
+  const delayMs = resolveRequestDelayMs(llmOptions?.requestDelayMs);
   
   // Process cards with a small delay to respect rate limits
   for (let i = 0; i < cards.length; i++) {
@@ -222,7 +215,7 @@ export async function enrichCards(
       const enrichedCard = await enrichCard(
         card.front, 
         card.back, 
-        apiKey,
+        llmConfig,
         card.options,
         card.answers
       );
@@ -232,9 +225,9 @@ export async function enrichCards(
         onProgress(i + 1, cards.length);
       }
       
-      // Small delay to avoid rate limits (Gemini free tier is generous, but be nice)
-      if (i < cards.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 500));
+      // Small delay to avoid rate limits
+      if (delayMs > 0 && i < cards.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, delayMs));
       }
     } catch (error: any) {
       console.error(`Error enriching card ${i + 1}:`, error);

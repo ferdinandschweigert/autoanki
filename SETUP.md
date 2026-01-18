@@ -13,12 +13,23 @@ npm install
 npm run build
 ```
 
-## Step 3: Get Gemini API Key
+## Step 3: Get an LLM API Key (choose one)
 
+**Option A: Gemini**
 1. Go to https://makersuite.google.com/app/apikey
 2. Sign in with your Google account
 3. Click "Create API Key"
 4. Copy the API key
+
+**Option B: TogetherAI**
+1. Go to https://api.together.xyz
+2. Create an API key
+3. Copy the API key
+
+**Option C: OpenAI**
+1. Go to https://platform.openai.com
+2. Create an API key
+3. Copy the API key
 
 ## Step 4: Install AnkiConnect in Anki Desktop
 
@@ -41,6 +52,7 @@ npm run build
       "command": "node",
       "args": ["/Users/ferdinandschweigert/Coding/anki/dist/index.js"],
       "env": {
+        "LLM_PROVIDER": "gemini",
         "GEMINI_API_KEY": "YOUR_GEMINI_API_KEY_HERE"
       }
     }
@@ -48,7 +60,34 @@ npm run build
 }
 ```
 
-**Important:** Replace `YOUR_GEMINI_API_KEY_HERE` with your actual Gemini API key!
+**Important:** Replace the API key with your actual key.
+
+**Alternative example (TogetherAI):**
+```json
+{
+  "mcpServers": {
+    "anki": {
+      "command": "node",
+      "args": ["/Users/ferdinandschweigert/Coding/anki/dist/index.js"],
+      "env": {
+        "LLM_PROVIDER": "together",
+        "TOGETHER_API_KEY": "YOUR_TOGETHER_API_KEY",
+        "TOGETHER_MODEL": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"
+      }
+    }
+  }
+}
+```
+
+### Optional LLM Configuration
+
+You can switch providers or add fallbacks without changing code:
+
+- `LLM_PROVIDER`: `gemini` (default), `together`, `openai`, `openai-compatible`
+- `LLM_FALLBACK_PROVIDERS`: e.g. `together,openai`
+- `LLM_MODEL` or provider-specific `GEMINI_MODEL`, `TOGETHER_MODEL`, `OPENAI_MODEL`
+- `LLM_BASE_URL` for `openai-compatible` (e.g. `https://api.together.xyz`)
+- `LLM_REQUEST_DELAY_MS` to tune rate limiting between cards
 
 ## Step 6: Restart Cursor
 
@@ -70,7 +109,7 @@ Once Cursor restarts, you can ask me (Adalbert):
 2. **Cursor** communicates with it via stdio (standard input/output)
 3. **I (Adalbert)** can call the MCP tools to interact with:
    - Your .apkg files (read them)
-   - Gemini API (enrich cards)
+   - LLM provider (enrich cards)
    - Anki Desktop via AnkiConnect (sync cards)
 
 You never need to run commands manually - just talk to me!
@@ -84,8 +123,9 @@ Die Website kann Karten direkt anreichern. So gehst du vor:
    ```bash
    cd website && npm install && npm run dev
    ```
-3. **Gemini API-Key** in `website/.env.local`:
+3. **LLM API-Key** in `website/.env.local` (Beispiel Gemini):
    ```
+   LLM_PROVIDER=gemini
    GEMINI_API_KEY=dein-api-key
    ```
    API-Key: https://aistudio.google.com/apikey
@@ -104,8 +144,8 @@ Die Website kann Karten direkt anreichern. So gehst du vor:
 - Verify AnkiConnect is installed (Tools → Add-ons)
 - Check that AnkiConnect is enabled
 
-### "GEMINI_API_KEY not set"
-- Make sure you added the API key to the Cursor MCP config
+### "LLM API key not set"
+- Make sure you added the API key to the Cursor MCP config or `.env.local`
 - Restart Cursor after adding the key
 
 ### "File not found"

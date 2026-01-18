@@ -21,7 +21,8 @@
 **Important**: Make sure "Root Directory" is set to `website` so Vercel only uses `website/package.json` and doesn't try to install `better-sqlite3` from the root.
 
 5. **Environment Variables** (if needed):
-   - Add `GEMINI_API_KEY` if you want to use enrichment features
+   - Add `LLM_PROVIDER` and a provider-specific key (`GEMINI_API_KEY`, `TOGETHER_API_KEY`, or `OPENAI_API_KEY`)
+   - Optional: `LLM_MODEL`, `LLM_FALLBACK_PROVIDERS`, `LLM_REQUEST_DELAY_MS`
    - Note: The website API routes connect to AnkiConnect on localhost, so they won't work on Vercel unless you set up a proxy
 
 6. **Deploy**: Click "Deploy"
