@@ -12,11 +12,28 @@ export interface EnrichedCard {
   front: string;
   back: string;
   options?: string[];  // MC-Optionen (Q_1 bis Q_5)
+  originalAnswers?: string;  // Original-Antwortcode (z.B. "10110")
   lösung: string;
   erklärung: string;
+  bewertungsTabelle?: Array<{  // Strukturierte Tabelle für MC-Fragen
+    aussage: string;
+    bewertung: 'Richtig' | 'Falsch' | 'Yes' | 'No';
+    begründung: string;
+  }>;
+  zusammenfassung?: string;  // Kurze Zusammenfassung am Ende
   eselsbrücke: string;
   referenz: string;
   extra1?: string;
+}
+
+interface BewertungsEintrag {
+  aussage?: string;
+  option?: string;
+  bewertung?: string;
+  richtig?: boolean;
+  begründung?: string;
+  begruendung?: string;
+  grund?: string;
 }
 
 interface GeminiResponse {
@@ -25,6 +42,10 @@ interface GeminiResponse {
   antwort?: string;
   erklärung?: string;
   erklarung?: string;
+  bewertungsTabelle?: BewertungsEintrag[];
+  bewertungstabelle?: BewertungsEintrag[];
+  tabelle?: BewertungsEintrag[];
+  zusammenfassung?: string;
   eselsbrücke?: string;
   eselsbrucke?: string;
   referenz?: string;
@@ -94,10 +115,34 @@ function parseGeminiResponse(text: string, fallbackBack: string): GeminiResponse
   }
 }
 
+function normalizeBewertung(value: string | boolean | undefined): 'Richtig' | 'Falsch' | 'Yes' | 'No' {
+  if (typeof value === 'boolean') return value ? 'Richtig' : 'Falsch';
+  const v = (value || '').toLowerCase().trim();
+  if (v === 'yes' || v === 'ja' || v === 'richtig' || v === 'true' || v === '1') return 'Richtig';
+  return 'Falsch';
+}
+
 function normalizeGeminiResponse(parsed: GeminiResponse, fallbackBack: string) {
+  // Parse bewertungsTabelle
+  const rawTabelle = parsed.bewertungsTabelle || parsed.bewertungstabelle || parsed.tabelle;
+  let bewertungsTabelle: Array<{ aussage: string; bewertung: 'Richtig' | 'Falsch' | 'Yes' | 'No'; begründung: string }> | undefined;
+  
+  if (Array.isArray(rawTabelle) && rawTabelle.length > 0) {
+    bewertungsTabelle = rawTabelle
+      .filter((entry): entry is BewertungsEintrag => typeof entry === 'object' && entry !== null)
+      .map((entry) => ({
+        aussage: entry.aussage || entry.option || '',
+        bewertung: normalizeBewertung(entry.bewertung ?? entry.richtig),
+        begründung: entry.begründung || entry.begruendung || entry.grund || '',
+      }))
+      .filter((entry) => entry.aussage);
+  }
+
   return {
     lösung: parsed.lösung || parsed.loesung || parsed.antwort || fallbackBack,
     erklärung: parsed.erklärung || parsed.erklarung || '',
+    bewertungsTabelle,
+    zusammenfassung: parsed.zusammenfassung || '',
     eselsbrücke: parsed.eselsbrücke || parsed.eselsbrucke || '',
     referenz: parsed.referenz || '',
     extra1: parsed.extra1 || parsed['Extra 1'] || '',
@@ -176,56 +221,80 @@ export async function enrichCard(
 
   const formatIntro = hasOptions
     ? hasBinary
-      ? 'WICHTIG - Multiple-Choice mit Binärcode. Antworte sehr kurz, strukturiert und extrem informativ.'
-      : 'WICHTIG - Multiple-Choice. Antworte sehr kurz, strukturiert und extrem informativ.'
-    : 'WICHTIG - Keine Antwortoptionen. Antworte sehr kurz, strukturiert und extrem informativ.';
+      ? 'WICHTIG - Multiple-Choice mit Binärcode. Strukturierte Antwort mit Bewertungstabelle!'
+      : 'WICHTIG - Multiple-Choice. Strukturierte Antwort mit Bewertungstabelle!'
+    : 'WICHTIG - Keine Antwortoptionen. Antworte strukturiert und informativ.';
 
   const solutionInstructions = hasOptions
-    ? hasBinary
-      ? '1. LÖSUNG: Eine Zeile: "Die richtige Antwort lautet: [Liste]." (aus dem Binärcode)'
-      : '1. LÖSUNG: Eine Zeile: "Die richtige Antwort lautet: [Liste]."'
+    ? '1. LÖSUNG: Kurze Einleitung zum klinischen Bild/Kontext, dann "Die korrekte Zuordnung lautet:..."'
     : '1. LÖSUNG: Eine Zeile: "Die richtige Antwort lautet: [Kurzantwort]."';
 
+  const tableInstructions = hasOptions
+    ? `2. BEWERTUNGSTABELLE: Für JEDE Option eine Zeile mit:
+   - aussage: Die Option (gekürzt)
+   - bewertung: "Richtig" oder "Falsch"
+   - begründung: Warum richtig/falsch (medizinische Erklärung)`
+    : '';
+
   const explanationInstructions = hasOptions
-    ? '2. ERKLÄRUNG: Max. 3 sehr kurze Zeilen mit Labels:\n   Überblick: ...\n   Richtig: Option X – Grund; Option Y – Grund\n   Falsch: Option Z – Grund'
-    : '2. ERKLÄRUNG: Max. 2 sehr kurze Zeilen mit Labels:\n   Überblick: ...\n   Warum korrekt: ...';
+    ? '3. ZUSAMMENFASSUNG: 2-4 Sätze mit dem wichtigsten Take-Home-Message für die Praxis.'
+    : '2. ERKLÄRUNG: Strukturiert mit Überblick und Begründung.';
 
-  const solutionExample = hasOptions ? 'Die richtige Antwort lautet: [Liste der richtigen Optionen].' : 'Die richtige Antwort lautet: [Kurzantwort].';
-  const explanationExample = hasOptions
-    ? 'Überblick: ... | Richtig: ... | Falsch: ...'
-    : 'Überblick: ... | Warum korrekt: ...';
+  const solutionExample = hasOptions 
+    ? 'Bei diesem klinischen Bild ist [Diagnose] anzunehmen. Die korrekte Zuordnung lautet:' 
+    : 'Die richtige Antwort lautet: [Kurzantwort].';
 
-  const prompt = `Du bist ein hilfreicher Tutor für Universitätsprüfungen.
-Ergänze die folgende Lernkarte mit einer klaren, strukturierten Erklärung auf Deutsch.
+  const jsonFormat = hasOptions
+    ? `{
+  "lösung": "${solutionExample}",
+  "bewertungsTabelle": [
+    { "aussage": "Option 1 (gekürzt)", "bewertung": "Richtig", "begründung": "Weil..." },
+    { "aussage": "Option 2 (gekürzt)", "bewertung": "Falsch", "begründung": "Weil..." }
+  ],
+  "zusammenfassung": "Bei diesem Patienten muss sofort... Wichtig ist...",
+  "eselsbrücke": "Eselsbrücke oder leer",
+  "referenz": "Lehrbuch/Leitlinie",
+  "extra1": "Klinischer Hinweis oder leer"
+}`
+    : `{
+  "lösung": "${solutionExample}",
+  "erklärung": "Überblick: ... | Warum korrekt: ...",
+  "eselsbrücke": "Eselsbrücke oder leer",
+  "referenz": "Lehrbuch/Leitlinie",
+  "extra1": "Klinischer Hinweis oder leer"
+}`;
+
+  const prompt = `Du bist ein hilfreicher Tutor für Universitätsprüfungen (Medizin).
+Ergänze die folgende Lernkarte mit einer klaren, STRUKTURIERTEN Erklärung auf Deutsch.
 
 FRAGE: ${front}${optionsText}${correctAnswersText}${answerText}
 
 ${formatIntro}
 
 ${solutionInstructions}
+${tableInstructions}
 
 ${explanationInstructions}
 
-3. ESELSBRÜCKE: Falls sinnvoll, maximal ein kurzer Satz. Sonst leer.
+ESELSBRÜCKE: Falls sinnvoll, maximal ein kurzer Satz. Sonst leer.
 
-4. REFERENZ: Gib eine passende Referenz an, z.B. ein Standardlehrbuch oder eine Leitlinie.
+REFERENZ: Passende Quelle (Lehrbuch, Leitlinie, z.B. "AMBOSS", "Herold Innere Medizin").
 
-5. EXTRA 1: Optional, maximal ein kurzer Satz (z.B. klinischer Hinweis). Sonst leer.
+EXTRA 1: Optional klinischer Hinweis, z.B. "Seit 2021 Teil des Neugeborenenscreenings in DE".
 
-Antworte im folgenden JSON-Format:
-{
-  "lösung": "${solutionExample}",
-  "erklärung": "${explanationExample}",
-  "eselsbrücke": "Eselsbrücke hier oder leer lassen wenn nicht sinnvoll",
-  "referenz": "Passende Quelle/Lehrbuch/Leitlinie",
-  "extra1": "Zusätzliche Informationen oder leer lassen"
-}`;
+Antworte AUSSCHLIESSLICH im folgenden JSON-Format:
+${jsonFormat}`;
 
   try {
     const text = await generateTextWithFallback(prompt, llmConfig);
     const parsed = parseGeminiResponse(text, back);
     const n = normalizeGeminiResponse(parsed, back);
-    return { front, back: back || '', ...n };
+    return { 
+      front, 
+      back: back || '', 
+      originalAnswers: answers || (isBinaryAnswerString(back) ? back : undefined),
+      ...n 
+    };
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     const lowered = msg.toLowerCase();
@@ -233,6 +302,7 @@ Antworte im folgenden JSON-Format:
     return {
       front,
       back: back || '',
+      originalAnswers: answers || (isBinaryAnswerString(back) ? back : undefined),
       lösung: back || '',
       erklärung: isRateLimit
         ? '⚠️ Rate limit/Quota erreicht. Bitte später erneut versuchen oder einen anderen Provider/Key nutzen.'
@@ -262,8 +332,12 @@ export async function enrichCards(
   for (let i = 0; i < cards.length; i++) {
     const c = cards[i];
     const e = await enrichCard(c.front, c.back, llmConfig, c.options, c.answers);
-    // Optionen mit übernehmen
-    out.push({ ...e, options: c.options });
+    // Original-Daten übernehmen
+    out.push({ 
+      ...e, 
+      options: c.options,
+      originalAnswers: c.answers || e.originalAnswers,
+    });
     onProgress?.(i + 1, cards.length);
     
     // Bei Rate-Limit/Quota optional stoppen
@@ -275,6 +349,7 @@ export async function enrichCards(
           front: cards[j].front,
           back: cards[j].back || '',
           options: cards[j].options,
+          originalAnswers: cards[j].answers,
           lösung: cards[j].back || '',
           erklärung: '⚠️ Anreicherung gestoppt: Rate limit/Quota erreicht.',
           eselsbrücke: '',

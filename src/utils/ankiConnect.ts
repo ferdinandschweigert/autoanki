@@ -7,6 +7,29 @@ import { AnkiConnectRequest, AnkiConnectResponse, AnkiCardFromDeck } from '../ty
 
 const ANKICONNECT_URL = 'http://localhost:8765';
 
+function normalizeFront(front: string): string {
+  return front.trim();
+}
+
+function escapeAnkiQueryValue(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+async function findExistingFronts(modelName: string, fronts: string[]): Promise<Set<string>> {
+  const existing = new Set<string>();
+  for (const front of fronts) {
+    const trimmed = normalizeFront(front);
+    if (!trimmed) continue;
+    const queryValue = escapeAnkiQueryValue(trimmed.replace(/\s+/g, ' '));
+    const query = `note:"${modelName}" Front:"${queryValue}"`;
+    const noteIds = await ankiRequest({ action: 'findNotes', version: 6, params: { query } });
+    if (Array.isArray(noteIds) && noteIds.length > 0) {
+      existing.add(trimmed);
+    }
+  }
+  return existing;
+}
+
 export async function ankiRequest(request: AnkiConnectRequest): Promise<any> {
   try {
     const response = await fetch(ANKICONNECT_URL, {
@@ -281,7 +304,7 @@ export async function addNotes(
     extra1?: string;
     tags?: string[];
   }>
-): Promise<number[]> {
+): Promise<{ noteIds: number[]; skippedDuplicates: number }> {
   // Ensure enriched note type exists
   const modelName = await createEnrichedNoteType();
   
@@ -292,11 +315,29 @@ export async function addNotes(
   }
   
   const noteIds: number[] = [];
+  const seen = new Set<string>();
+  const uniqueNotes: typeof notes = [];
+  let skippedDuplicates = 0;
+
+  for (const note of notes) {
+    const key = normalizeFront(note.front);
+    if (!key) continue;
+    if (seen.has(key)) {
+      skippedDuplicates += 1;
+      continue;
+    }
+    seen.add(key);
+    uniqueNotes.push(note);
+  }
+
+  const existing = await findExistingFronts(modelName, uniqueNotes.map(note => note.front));
+  const notesToAdd = uniqueNotes.filter(note => !existing.has(normalizeFront(note.front)));
+  skippedDuplicates += uniqueNotes.length - notesToAdd.length;
   
   // Add notes in batches to avoid overwhelming AnkiConnect
   const batchSize = 10;
-  for (let i = 0; i < notes.length; i += batchSize) {
-    const batch = notes.slice(i, i + batchSize);
+  for (let i = 0; i < notesToAdd.length; i += batchSize) {
+    const batch = notesToAdd.slice(i, i + batchSize);
     
     const results = await ankiRequest({
       action: 'addNotes',
@@ -320,10 +361,12 @@ export async function addNotes(
       },
     });
     
-    noteIds.push(...results);
+    if (Array.isArray(results)) {
+      noteIds.push(...results.filter((id): id is number => typeof id === 'number'));
+    }
   }
   
-  return noteIds;
+  return { noteIds, skippedDuplicates };
 }
 
 // AnkiCardFromDeck is now imported from types/index.ts

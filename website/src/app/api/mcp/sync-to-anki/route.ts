@@ -25,57 +25,93 @@ async function ankiRequest(request: unknown): Promise<unknown> {
   return data.result;
 }
 
-const ENRICHED_MODEL_PARAMS = {
-  modelName: 'Enriched Card',
-  inOrderFields: ['Front', 'Back', 'Original-Antwort', 'Optionen', 'Lösung', 'Erklärung', 'Eselsbrücke', 'Referenz', 'Extra 1'],
-  css: `
-.card{font-family:Arial,sans-serif;font-size:20px;text-align:center;color:#000;background:#fff}
-.front{font-weight:bold;font-size:24px;margin-bottom:20px}
-.back{margin-bottom:20px}
-.original-antwort{background:#f5f5f5;padding:10px;margin:10px 0;border-left:3px solid #9e9e9e;text-align:left;font-size:16px;color:#666}
-.lösung{background:#e3f2fd;padding:15px;margin:20px 0;border-left:4px solid #2196F3;text-align:left;font-weight:bold;font-size:22px}
-.erklärung{background:#f0f0f0;padding:15px;margin-top:20px;border-left:4px solid #4CAF50;text-align:left}
-.eselsbrücke{background:#fff3cd;padding:15px;margin-top:10px;border-left:4px solid #ffc107;text-align:left;font-style:italic}
-.referenz{background:#e8f5e9;padding:10px;margin-top:15px;border-left:4px solid #66bb6a;text-align:left;font-size:14px;color:#555}
-.extra1{background:#f3e5f5;padding:15px;margin-top:15px;border-left:4px solid #9c27b0;text-align:left;font-size:16px}
-.optionen{background:#fff9e6;padding:12px;margin:10px 0;border-left:3px solid #ff9800;text-align:left;font-size:16px}
-  `,
-  cardTemplates: [
-    {
-      Name: 'Card 1',
-      Front: '<div class="front">{{Front}}</div>',
-      Back: `
-<div class="front">{{Front}}</div><hr>
-{{#Optionen}}<div class="optionen"><strong>📋 OPTIONEN:</strong><br>{{Optionen}}</div>{{/Optionen}}
-{{#Lösung}}<div class="lösung">✅ <strong>LÖSUNG:</strong><br>{{Lösung}}</div>{{/Lösung}}
-{{#Original-Antwort}}<div class="original-antwort"><strong>Original-Antwort (Binärcode):</strong><br>{{Original-Antwort}}</div>{{/Original-Antwort}}
-{{#Erklärung}}<div class="erklärung"><strong>📚 ERKLÄRUNG:</strong><br>{{Erklärung}}</div>{{/Erklärung}}
-{{#Eselsbrücke}}<div class="eselsbrücke"><strong>💡 ESELSBRÜCKE:</strong><br>{{Eselsbrücke}}</div>{{/Eselsbrücke}}
-{{#Referenz}}<div class="referenz"><strong>📖 REFERENZ:</strong> {{Referenz}}</div>{{/Referenz}}
-{{#Extra 1}}<div class="extra1"><strong>📝 EXTRA 1:</strong><br>{{Extra 1}}</div>{{/Extra 1}}
-      `,
-    },
-  ],
-};
+interface BewertungsEintrag {
+  aussage: string;
+  bewertung: string;
+  begründung: string;
+}
 
 interface EnrichedCard {
   front: string;
   back: string;
   options?: string[];
+  originalAnswers?: string;
   lösung: string;
   erklärung: string;
+  bewertungsTabelle?: BewertungsEintrag[];
+  zusammenfassung?: string;
   eselsbrücke: string;
   referenz: string;
   extra1?: string;
 }
 
+// Formatiert die Anreicherung als HTML für das Sources-Feld
+function formatEnrichmentHtml(card: EnrichedCard): string {
+  const parts: string[] = [];
+  
+  // Lösung
+  if (card.lösung) {
+    parts.push(`<div style="background:#e3f2fd;padding:10px;margin:5px 0;border-left:3px solid #2196F3"><b>Lösung:</b> ${card.lösung}</div>`);
+  }
+  
+  // Bewertungstabelle
+  if (card.bewertungsTabelle && card.bewertungsTabelle.length > 0) {
+    let table = '<table style="width:100%;border-collapse:collapse;font-size:14px;margin:10px 0">';
+    table += '<tr style="background:#f5f5f5"><th style="text-align:left;padding:6px;border:1px solid #ddd">Aussage</th><th style="width:30px;padding:6px;border:1px solid #ddd"></th><th style="text-align:left;padding:6px;border:1px solid #ddd">Begründung</th></tr>';
+    for (const row of card.bewertungsTabelle) {
+      const isCorrect = row.bewertung === 'Richtig' || row.bewertung === 'Yes';
+      const symbol = isCorrect ? '<span style="color:green">✓</span>' : '<span style="color:red">✗</span>';
+      table += `<tr><td style="padding:6px;border:1px solid #ddd">${row.aussage}</td><td style="text-align:center;padding:6px;border:1px solid #ddd">${symbol}</td><td style="padding:6px;border:1px solid #ddd">${row.begründung}</td></tr>`;
+    }
+    table += '</table>';
+    parts.push(table);
+  }
+  
+  // Zusammenfassung
+  if (card.zusammenfassung) {
+    parts.push(`<div style="background:#e8f5e9;padding:10px;margin:5px 0;border-left:3px solid #4CAF50"><b>Zusammenfassung:</b> ${card.zusammenfassung}</div>`);
+  }
+  
+  // Erklärung (nur wenn keine Tabelle)
+  if (card.erklärung && (!card.bewertungsTabelle || card.bewertungsTabelle.length === 0)) {
+    parts.push(`<div style="background:#f5f5f5;padding:10px;margin:5px 0"><b>Erklärung:</b> ${card.erklärung}</div>`);
+  }
+  
+  // Eselsbrücke
+  if (card.eselsbrücke) {
+    parts.push(`<div style="background:#fff3cd;padding:10px;margin:5px 0;border-left:3px solid #ffc107"><b>Eselsbrücke:</b> ${card.eselsbrücke}</div>`);
+  }
+  
+  // Referenz
+  if (card.referenz) {
+    parts.push(`<div style="color:#666;font-size:12px;margin:5px 0"><b>Referenz:</b> ${card.referenz}</div>`);
+  }
+  
+  // Extra
+  if (card.extra1) {
+    parts.push(`<div style="background:#f3e5f5;padding:10px;margin:5px 0;border-left:3px solid #9c27b0"><b>Hinweis:</b> ${card.extra1}</div>`);
+  }
+  
+  return parts.join('');
+}
+
+// Normalisiert Text für Vergleiche
+function normalizeForSearch(text: string): string {
+  return text
+    .replace(/<[^>]*>/g, ' ')  // HTML entfernen
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const deckName = (body.deckName || '').replace(/[<>"']/g, '').trim();
+    const sourceDeck = (body.deckName || '').replace(/[<>"']/g, '').trim();
     const cards = Array.isArray(body.cards) ? body.cards as EnrichedCard[] : [];
 
-    if (!deckName) {
+    if (!sourceDeck) {
       return NextResponse.json({ error: 'deckName is required' }, { status: 400 });
     }
     if (cards.length === 0) {
@@ -84,52 +120,102 @@ export async function POST(request: NextRequest) {
 
     await ankiRequest({ action: 'version', version: 6 });
 
-    const models = (await ankiRequest({ action: 'modelNames', version: 6 })) as string[];
-    if (!models.includes('Enriched Card')) {
-      await ankiRequest({ action: 'createModel', version: 6, params: ENRICHED_MODEL_PARAMS });
+    // Alle Notes im Deck finden
+    const noteIds = (await ankiRequest({
+      action: 'findNotes',
+      version: 6,
+      params: { query: `deck:"${sourceDeck.replace(' (angereichert)', '')}"` },
+    })) as number[];
+
+    if (!noteIds || noteIds.length === 0) {
+      return NextResponse.json({ 
+        error: `Keine Karten im Deck "${sourceDeck}" gefunden` 
+      }, { status: 400 });
     }
 
-    const decks = (await ankiRequest({ action: 'deckNames', version: 6 })) as string[];
-    if (!decks.includes(deckName)) {
-      await ankiRequest({ action: 'createDeck', version: 6, params: { deck: deckName } });
+    // Note-Infos holen
+    const notesInfo = (await ankiRequest({
+      action: 'notesInfo',
+      version: 6,
+      params: { notes: noteIds },
+    })) as Array<{ 
+      noteId: number; 
+      fields: Record<string, { value: string }>;
+      modelName: string;
+    }>;
+
+    // Map von normalisierter Frage zu noteId
+    const questionToNote = new Map<string, { noteId: number; modelName: string; fields: Record<string, { value: string }> }>();
+    for (const note of notesInfo) {
+      const question = note.fields['Question']?.value || 
+                       note.fields['Frage']?.value || 
+                       note.fields['Front']?.value || 
+                       note.fields['Text']?.value || '';
+      if (question) {
+        questionToNote.set(normalizeForSearch(question), note);
+      }
     }
 
-    const batchSize = 10;
-    const noteIds: number[] = [];
-    for (let i = 0; i < cards.length; i += batchSize) {
-      const batch = cards.slice(i, i + batchSize);
-      const results = (await ankiRequest({
-        action: 'addNotes',
-        version: 6,
-        params: {
-          notes: batch.map((c) => ({
-            deckName,
-            modelName: 'Enriched Card',
-            fields: {
-              Front: c.front || '',
-              Back: c.back || '',
-              'Original-Antwort': c.back || '',
-              Optionen: c.options && c.options.length > 0 
-                ? c.options.map((opt, idx) => `${idx + 1}. ${opt}`).join('<br>')
-                : '',
-              Lösung: c.lösung || '',
-              Erklärung: c.erklärung || '',
-              Eselsbrücke: c.eselsbrücke || '',
-              Referenz: c.referenz || '',
-              'Extra 1': c.extra1 || '',
+    let updated = 0;
+    let notFound = 0;
+    const errors: string[] = [];
+
+    // Karten matchen und updaten
+    for (const card of cards) {
+      const normalizedFront = normalizeForSearch(card.front);
+      const matchingNote = questionToNote.get(normalizedFront);
+      
+      if (!matchingNote) {
+        notFound++;
+        continue;
+      }
+
+      // Prüfen welches Feld für die Anreicherung verwendet werden kann
+      const fields = matchingNote.fields;
+      let targetField = '';
+      
+      // Priorität: Sources > Extra > Hinweis > erstes leeres Feld
+      if ('Sources' in fields) targetField = 'Sources';
+      else if ('Extra' in fields) targetField = 'Extra';
+      else if ('Hinweis' in fields) targetField = 'Hinweis';
+      else if ('Zusatz' in fields) targetField = 'Zusatz';
+      
+      if (!targetField) {
+        // Kein passendes Feld gefunden - überspringen
+        errors.push(`Kein Sources/Extra Feld für: ${card.front.substring(0, 50)}...`);
+        continue;
+      }
+
+      const enrichmentHtml = formatEnrichmentHtml(card);
+      
+      try {
+        await ankiRequest({
+          action: 'updateNoteFields',
+          version: 6,
+          params: {
+            note: {
+              id: matchingNote.noteId,
+              fields: {
+                [targetField]: enrichmentHtml,
+              },
             },
-            tags: [],
-          })),
-        },
-      })) as number[];
-      noteIds.push(...results);
+          },
+        });
+        updated++;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        errors.push(`Update fehlgeschlagen: ${msg}`);
+      }
     }
 
     return NextResponse.json({
       success: true,
-      noteIds,
-      count: noteIds.length,
-      message: `${noteIds.length} Karten zu "${deckName}" hinzugefügt.`,
+      updated,
+      notFound,
+      total: cards.length,
+      message: `${updated} Karten aktualisiert` + 
+        (notFound > 0 ? `, ${notFound} nicht gefunden` : '') +
+        (errors.length > 0 ? `. Fehler: ${errors.slice(0, 3).join('; ')}` : ''),
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);

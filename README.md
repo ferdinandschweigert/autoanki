@@ -96,3 +96,7 @@ The system automatically reads options from Anki cards and generates explanation
 ## How It Connects
 
 The MCP server runs as a background process that Cursor communicates with. You never need to run commands manually - just talk to me and I'll handle everything!
+
+## Changelog
+
+→ **[CHANGELOG.md](CHANGELOG.md)** – Monat/Jahr, Key Features und kurze Beschreibungen der Entwicklung.

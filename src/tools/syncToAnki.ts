@@ -54,7 +54,7 @@ export async function handleSyncToAnki(args: {
     );
   }
   
-  const noteIds = await addNotes(
+  const { noteIds, skippedDuplicates } = await addNotes(
     args.deckName,
     args.cards.map(card => ({
       front: card.front,
@@ -72,6 +72,8 @@ export async function handleSyncToAnki(args: {
   return {
     success: true,
     noteIds,
-    message: `Successfully added ${noteIds.length} cards to deck "${args.deckName}"`,
+    message:
+      `Successfully added ${noteIds.length} cards to deck "${args.deckName}".` +
+      (skippedDuplicates > 0 ? ` Skipped ${skippedDuplicates} duplicates.` : ''),
   };
 }

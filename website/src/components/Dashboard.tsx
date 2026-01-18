@@ -14,7 +14,8 @@ import {
   Sparkles,
   ChevronDown,
   ChevronUp,
-  Download
+  Download,
+  Target
 } from 'lucide-react';
 
 interface Deck {
@@ -31,15 +32,33 @@ interface AnkiCard {
   qType: number;
 }
 
+interface BewertungsEintrag {
+  aussage: string;
+  bewertung: 'Richtig' | 'Falsch' | 'Yes' | 'No';
+  begründung: string;
+}
+
 interface EnrichedCard {
   front: string;
   back: string;
   options?: string[];
+  originalAnswers?: string;
   lösung: string;
   erklärung: string;
+  bewertungsTabelle?: BewertungsEintrag[];
+  zusammenfassung?: string;
   eselsbrücke: string;
   referenz: string;
   extra1?: string;
+}
+
+interface PrioritySuggestion {
+  id: string;
+  rank: number;
+  front: string;
+  topic?: string;
+  reason?: string;
+  learningGoals?: string[];
 }
 
 type LlmProvider = 'gemini' | 'together' | 'openai' | 'openai-compatible';
@@ -103,6 +122,12 @@ export default function Dashboard() {
   const [syncLoading, setSyncLoading] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [expandedCard, setExpandedCard] = useState<number | null>(null);
+  const [prioritySuggestions, setPrioritySuggestions] = useState<PrioritySuggestion[]>([]);
+  const [priorityLoading, setPriorityLoading] = useState(false);
+  const [priorityError, setPriorityError] = useState<string | null>(null);
+  const [priorityLimit, setPriorityLimit] = useState(300);
+  const [priorityMeta, setPriorityMeta] = useState<{ considered: number; method: string } | null>(null);
+  const priorityTopN = 15;
   const selectedProviderNote = LLM_PROVIDERS.find((provider) => provider.value === llmProvider)?.note;
   const selectedProfileHint = LLM_PROFILES.find((profile) => profile.value === llmProfile)?.hint;
   const presetModel = MODEL_PRESETS[llmProvider][llmProfile];
@@ -185,6 +210,9 @@ export default function Dashboard() {
     if (selectedDeck) {
       setSyncTargetDeck(`${selectedDeck} (angereichert)`);
     }
+    setPrioritySuggestions([]);
+    setPriorityMeta(null);
+    setPriorityError(null);
   }, [selectedDeck]);
 
   const runEnrich = async () => {
@@ -249,21 +277,63 @@ export default function Dashboard() {
   };
 
   const runSync = async () => {
-    if (!syncTargetDeck.trim() || enrichedCards.length === 0) return;
+    if (!selectedDeck || enrichedCards.length === 0) return;
     setSyncLoading(true);
     setSyncError(null);
     try {
       const res = await fetch('/api/mcp/sync-to-anki', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deckName: syncTargetDeck.trim(), cards: enrichedCards }),
+        body: JSON.stringify({ deckName: selectedDeck, cards: enrichedCards }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Sync fehlgeschlagen');
+      // Erfolg anzeigen
+      setSyncError(null);
+      alert(data.message || `${data.updated} Karten aktualisiert`);
     } catch (e: unknown) {
       setSyncError(e instanceof Error ? e.message : String(e));
     } finally {
       setSyncLoading(false);
+    }
+  };
+
+  const runPrioritize = async () => {
+    if (!selectedDeck || isHosted) return;
+    setPriorityLoading(true);
+    setPriorityError(null);
+    setPrioritySuggestions([]);
+    setPriorityMeta(null);
+    const resolvedModel = llmModelOverride.trim() || presetModel;
+    try {
+      const res = await fetch('/api/mcp/prioritize-cards', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deckName: selectedDeck,
+          limit: priorityLimit,
+          topN: priorityTopN,
+          provider: llmProvider,
+          model: resolvedModel,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Priorisierung fehlgeschlagen');
+      }
+      if (data.warning) {
+        setPriorityError(data.warning);
+      }
+      setPrioritySuggestions(data.priorities || []);
+      setPriorityMeta({
+        considered: data.considered || 0,
+        method: data.method || 'llm',
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setPriorityError(msg);
+    } finally {
+      setPriorityLoading(false);
     }
   };
 
@@ -499,35 +569,132 @@ export default function Dashboard() {
             {enrichedCards.length > 0 && (
               <div className="space-y-4 border-t border-zinc-200 pt-4">
                 <h4 className="font-medium text-zinc-900">Angereicherte Karten ({enrichedCards.length})</h4>
-                <div className="max-h-96 overflow-y-auto space-y-3">
+                <div className="max-h-[600px] overflow-y-auto space-y-3">
                   {enrichedCards.slice(0, 20).map((c, i) => (
-                    <div key={i} className="p-3 border border-zinc-200 rounded-lg bg-zinc-50">
+                    <div key={i} className="p-4 border border-zinc-200 rounded-lg bg-zinc-50">
                       <button
                         type="button"
                         className="w-full text-left flex justify-between items-center"
                         onClick={() => setExpandedCard(expandedCard === i ? null : i)}
                       >
                         <span className="text-sm font-medium text-zinc-900 line-clamp-2">{c.front}</span>
-                        {expandedCard === i ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                        {expandedCard === i ? <ChevronUp className="h-4 w-4 flex-shrink-0" /> : <ChevronDown className="h-4 w-4 flex-shrink-0" />}
                       </button>
                       {expandedCard === i && (
-                        <div className="mt-3 space-y-2 text-sm">
-                          {c.options && c.options.length > 0 && (
-                            <div>
-                              <span className="font-medium text-orange-700">Optionen:</span>
-                              <ul className="list-disc list-inside mt-1 text-zinc-700">
-                                {c.options.map((opt, idx) => (
-                                  <li key={idx}>{idx + 1}. {opt}</li>
-                                ))}
-                              </ul>
+                        <div className="mt-4 space-y-4 text-sm">
+                          {/* Original-Frage */}
+                          <div className="p-3 bg-zinc-50 border border-zinc-200 rounded-lg">
+                            <span className="text-sm text-zinc-500">Frage:</span>
+                            <p className="text-zinc-800 mt-1">{c.front}</p>
+                          </div>
+
+                          {/* Original-Optionen mit Binärcode-Auswertung */}
+                          {c.options && c.options.length > 0 && (() => {
+                            // Binärcode: Leerzeichen und andere Zeichen entfernen
+                            const rawCode = c.originalAnswers || c.back || '';
+                            const binaryCode = rawCode.replace(/[^01]/g, ''); // Nur 0 und 1 behalten
+                            return (
+                              <div className="p-3 bg-white border border-zinc-200 rounded-lg">
+                                <div className="flex items-center justify-between mb-2">
+                                  <span className="text-sm text-zinc-600">Antwort-Optionen:</span>
+                                  {binaryCode && (
+                                    <span className="text-xs font-mono text-zinc-400">
+                                      {binaryCode}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="space-y-1">
+                                  {c.options.map((opt, idx) => {
+                                    const answerBit = binaryCode ? binaryCode[idx] : undefined;
+                                    const isCorrect = answerBit === '1';
+                                    const isIncorrect = answerBit === '0';
+                                    return (
+                                      <div 
+                                        key={idx} 
+                                        className={`flex items-start gap-2 py-1 px-2 rounded ${
+                                          isCorrect ? 'bg-green-50' : isIncorrect ? 'bg-red-50' : ''
+                                        }`}
+                                      >
+                                        <span className="font-mono text-xs text-zinc-400 w-6">Q{idx + 1}</span>
+                                        <span className={`flex-1 text-sm ${isCorrect ? 'text-green-700' : isIncorrect ? 'text-zinc-500' : 'text-zinc-700'}`}>
+                                          {opt}
+                                        </span>
+                                        {isCorrect && <span className="text-green-600 text-sm">✓</span>}
+                                        {isIncorrect && <span className="text-red-400 text-sm">✗</span>}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })()}
+
+                          {/* Lösung */}
+                          <div className="p-3 bg-zinc-50 border border-zinc-200 rounded-lg">
+                            <span className="text-sm font-medium text-zinc-600">Lösung:</span>
+                            <p className="text-zinc-800 mt-1">{c.lösung}</p>
+                          </div>
+
+                          {/* Bewertungstabelle für MC-Fragen */}
+                          {c.bewertungsTabelle && c.bewertungsTabelle.length > 0 && (
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-sm border-collapse">
+                                <thead>
+                                  <tr className="bg-zinc-100">
+                                    <th className="text-left p-2 border border-zinc-200 font-medium text-zinc-600">Aussage</th>
+                                    <th className="text-center p-2 border border-zinc-200 font-medium text-zinc-600 w-20"></th>
+                                    <th className="text-left p-2 border border-zinc-200 font-medium text-zinc-600">Begründung</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {c.bewertungsTabelle.map((row, idx) => (
+                                    <tr key={idx} className="bg-white">
+                                      <td className="p-2 border border-zinc-200 text-zinc-700">{row.aussage}</td>
+                                      <td className={`p-2 border border-zinc-200 text-center ${
+                                        row.bewertung === 'Richtig' || row.bewertung === 'Yes' 
+                                          ? 'text-green-600' 
+                                          : 'text-red-500'
+                                      }`}>
+                                        {row.bewertung === 'Richtig' || row.bewertung === 'Yes' ? '✓' : '✗'}
+                                      </td>
+                                      <td className="p-2 border border-zinc-200 text-zinc-600">{row.begründung}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
                             </div>
                           )}
-                          <div><span className="font-medium text-blue-700">Lösung:</span> <span className="text-zinc-700">{c.lösung}</span></div>
-                          <div><span className="font-medium text-zinc-600">Original-Antwort (Binärcode):</span> <span className="text-zinc-600 font-mono">{c.back}</span></div>
-                          <div><span className="font-medium text-green-700">Erklärung:</span> <span className="text-zinc-700 whitespace-pre-wrap">{c.erklärung}</span></div>
-                          {c.eselsbrücke && <div><span className="font-medium text-amber-700">Eselsbrücke:</span> <span className="text-zinc-700">{c.eselsbrücke}</span></div>}
-                          {c.referenz && <div><span className="font-medium text-zinc-600">Referenz:</span> <span className="text-zinc-600">{c.referenz}</span></div>}
-                          {c.extra1 && <div><span className="font-medium text-purple-700">Extra 1:</span> <span className="text-zinc-700">{c.extra1}</span></div>}
+
+                          {/* Zusammenfassung */}
+                          {c.zusammenfassung && (
+                            <div className="p-3 bg-zinc-50 border border-zinc-200 rounded-lg">
+                              <span className="text-sm font-medium text-zinc-600">Zusammenfassung:</span>
+                              <p className="text-zinc-800 mt-1">{c.zusammenfassung}</p>
+                            </div>
+                          )}
+
+                          {/* Erklärung (fallback wenn keine Tabelle) */}
+                          {c.erklärung && !c.bewertungsTabelle?.length && (
+                            <div className="p-3 bg-zinc-50 border border-zinc-200 rounded-lg">
+                              <span className="text-sm font-medium text-zinc-600">Erklärung:</span>
+                              <p className="text-zinc-700 whitespace-pre-wrap mt-1">{c.erklärung}</p>
+                            </div>
+                          )}
+
+                          {/* Zusatzinfos */}
+                          {(c.eselsbrücke || c.referenz || c.extra1) && (
+                            <div className="text-sm text-zinc-600 space-y-1 pt-2 border-t border-zinc-200">
+                              {c.eselsbrücke && (
+                                <p><span className="text-zinc-500">Eselsbrücke:</span> {c.eselsbrücke}</p>
+                              )}
+                              {c.referenz && (
+                                <p><span className="text-zinc-500">Referenz:</span> {c.referenz}</p>
+                              )}
+                              {c.extra1 && (
+                                <p><span className="text-zinc-500">Hinweis:</span> {c.extra1}</p>
+                              )}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -537,24 +704,16 @@ export default function Dashboard() {
                   )}
                 </div>
                 <div className="flex flex-wrap items-end gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-zinc-700 mb-1">Ziel-Deck in Anki</label>
-                    <input
-                      type="text"
-                      value={syncTargetDeck}
-                      onChange={(e) => setSyncTargetDeck(e.target.value)}
-                      placeholder="z.B. Mein Deck (angereichert)"
-                      className="w-64 px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      disabled={syncLoading}
-                    />
-                  </div>
                   <Button onClick={runSync} disabled={syncLoading}>
                     {syncLoading ? (
-                      <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Wird hinzugefügt…</>
+                      <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Aktualisiere Karten…</>
                     ) : (
-                      <><Download className="h-4 w-4 mr-2" /> Zu Anki hinzufügen</>
+                      <><Download className="h-4 w-4 mr-2" /> In Anki aktualisieren (Sources-Feld)</>
                     )}
                   </Button>
+                  <p className="text-xs text-zinc-500">
+                    Schreibt die Anreicherung ins "Sources"-Feld der Original-Karten
+                  </p>
                 </div>
                 {syncError && (
                   <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-700">
@@ -562,6 +721,103 @@ export default function Dashboard() {
                     <span className="text-sm">{syncError}</span>
                   </div>
                 )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* 80/20 Priorisierung - Themenliste */}
+      {!isHosted && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Target className="h-5 w-5 text-emerald-600" />
+              80/20 Themenliste
+            </CardTitle>
+            <CardDescription>
+              Top {priorityTopN} Themen mit dem größten Lernerfolg. Fokus auf Konzepte, nicht einzelne Fragen.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {priorityError && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-700">
+                <AlertCircle className="h-4 w-4" />
+                <span className="text-sm">{priorityError}</span>
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-end gap-4">
+              <div>
+                <label className="block text-sm font-medium text-zinc-700 mb-1">Max. Karten analysieren</label>
+                <input
+                  type="number"
+                  min={10}
+                  max={1000}
+                  value={priorityLimit}
+                  onChange={(e) =>
+                    setPriorityLimit(Math.max(10, Math.min(1000, parseInt(e.target.value, 10) || 10)))
+                  }
+                  className="w-28 px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  disabled={priorityLoading}
+                />
+              </div>
+              <Button
+                onClick={runPrioritize}
+                disabled={priorityLoading || !selectedDeck || decks.length === 0}
+              >
+                {priorityLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Analysiere Themen...
+                  </>
+                ) : (
+                  <>Top {priorityTopN} Themen identifizieren</>
+                )}
+              </Button>
+            </div>
+
+            {priorityMeta && (
+              <p className="text-sm text-zinc-600">
+                {priorityMeta.considered} Karten analysiert. Methode: {priorityMeta.method === 'fallback' ? 'Heuristik (Fallback)' : 'LLM'}.
+              </p>
+            )}
+
+            {prioritySuggestions.length > 0 && (
+              <div className="space-y-3">
+                <h4 className="font-medium text-zinc-700">Deine Lern-Prioritäten:</h4>
+                {prioritySuggestions.map((item) => (
+                  <div key={item.id} className="p-3 border border-zinc-200 rounded-lg bg-white">
+                    <div className="flex items-start gap-3">
+                      <span className="flex-shrink-0 w-6 h-6 rounded-full bg-zinc-200 text-zinc-600 flex items-center justify-center font-medium text-sm">
+                        {item.rank}
+                      </span>
+                      <div className="flex-1 space-y-1">
+                        <h5 className="font-medium text-zinc-800">
+                          {item.topic || 'Kernthema'}
+                        </h5>
+                        {item.reason && (
+                          <p className="text-sm text-zinc-600">{item.reason}</p>
+                        )}
+                        {item.learningGoals && item.learningGoals.length > 0 && (
+                          <ul className="list-disc list-inside text-sm text-zinc-500 mt-1">
+                            {item.learningGoals.map((goal, idx) => (
+                              <li key={idx}>{goal}</li>
+                            ))}
+                          </ul>
+                        )}
+                        <details className="mt-1">
+                          <summary className="text-xs text-zinc-400 cursor-pointer hover:text-zinc-600">
+                            Beispielfrage
+                          </summary>
+                          <p className="text-xs text-zinc-500 mt-1 pl-2 border-l border-zinc-200">
+                            {item.front}
+                          </p>
+                        </details>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </CardContent>
