@@ -6,6 +6,13 @@ Kurze Übersicht der wichtigsten Änderungen.
 
 ## 01/2026
 
+### PDF Klausur-Import (NEU)
+- **PDF hochladen** → Altklausuren als Anki-Karten
+- **LLM extrahiert Fragen** (SC/MC/KPRIM erkannt)
+- **LLM bestimmt korrekte Antworten** + Erklärungen
+- **Deck-Auswahl**: Neues Deck oder Unterdeck (z.B. "Derma::Altklausuren::WS18-19")
+- Format: Question, Q_1–Q_5, Answers (kompatibel mit bestehenden Decks)
+
 ### Resume-Funktion für Anreicherung
 - **Fortschritt wird automatisch gespeichert** im Browser (localStorage)
 - Bei Netzwerkfehler oder Computer-Schlaf: **Fortsetzen** statt Neustart

@@ -15,7 +15,9 @@ import {
   ChevronDown,
   ChevronUp,
   Download,
-  Target
+  Target,
+  Upload,
+  FileUp
 } from 'lucide-react';
 
 interface Deck {
@@ -59,6 +61,15 @@ interface PrioritySuggestion {
   topic?: string;
   reason?: string;
   learningGoals?: string[];
+}
+
+interface ParsedQuestion {
+  number: number;
+  question: string;
+  options: string[];
+  type: 'SC' | 'MC' | 'KPRIM';
+  correctAnswers?: string;
+  explanation?: string;
 }
 
 type LlmProvider = 'gemini' | 'together' | 'openai' | 'openai-compatible';
@@ -162,6 +173,16 @@ export default function Dashboard() {
   };
   
   const [savedProgress, setSavedProgress] = useState<{ cards: EnrichedCard[]; timestamp: number } | null>(null);
+
+  // PDF Import State
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [pdfText, setPdfText] = useState<string>('');
+  const [pdfTitle, setPdfTitle] = useState<string>('');
+  const [parsedQuestions, setParsedQuestions] = useState<ParsedQuestion[]>([]);
+  const [pdfStep, setPdfStep] = useState<'upload' | 'parsing' | 'answering' | 'preview' | 'importing'>('upload');
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  const [pdfProgress, setPdfProgress] = useState<string>('');
+  const [importDeckName, setImportDeckName] = useState<string>('');
 
   const loadDecks = async () => {
     if (isHosted) return;
@@ -401,6 +422,121 @@ export default function Dashboard() {
     } finally {
       setPriorityLoading(false);
     }
+  };
+
+  // PDF Import Funktionen
+  const handlePdfUpload = async (file: File) => {
+    setPdfFile(file);
+    setPdfError(null);
+    setPdfStep('parsing');
+    setPdfProgress('Extrahiere Text aus PDF...');
+    
+    const resolvedModel = llmModelOverride.trim() || presetModel;
+    
+    try {
+      // Step 1: Text extrahieren
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('provider', llmProvider);
+      formData.append('model', resolvedModel);
+      formData.append('step', 'extract');
+      
+      const extractRes = await fetch('/api/mcp/parse-pdf', {
+        method: 'POST',
+        body: formData,
+      });
+      const extractData = await extractRes.json();
+      if (!extractRes.ok) throw new Error(extractData.error);
+      
+      setPdfText(extractData.text);
+      setPdfTitle(extractData.title || file.name.replace('.pdf', ''));
+      setImportDeckName(extractData.title || file.name.replace('.pdf', ''));
+      setPdfProgress(`${extractData.charCount} Zeichen extrahiert. Parse Fragen...`);
+      
+      // Step 2: Fragen parsen
+      const parseFormData = new FormData();
+      parseFormData.append('provider', llmProvider);
+      parseFormData.append('model', resolvedModel);
+      parseFormData.append('step', 'parse');
+      parseFormData.append('text', extractData.text);
+      
+      const parseRes = await fetch('/api/mcp/parse-pdf', {
+        method: 'POST',
+        body: parseFormData,
+      });
+      const parseData = await parseRes.json();
+      if (!parseRes.ok) throw new Error(parseData.error);
+      
+      setParsedQuestions(parseData.questions || []);
+      setPdfProgress(`${parseData.count} Fragen gefunden. Bestimme Antworten...`);
+      setPdfStep('answering');
+      
+      // Step 3: Antworten bestimmen
+      const answerFormData = new FormData();
+      answerFormData.append('provider', llmProvider);
+      answerFormData.append('model', resolvedModel);
+      answerFormData.append('step', 'answer');
+      answerFormData.append('questions', JSON.stringify(parseData.questions));
+      
+      const answerRes = await fetch('/api/mcp/parse-pdf', {
+        method: 'POST',
+        body: answerFormData,
+      });
+      const answerData = await answerRes.json();
+      if (!answerRes.ok) throw new Error(answerData.error);
+      
+      setParsedQuestions(answerData.questions || []);
+      setPdfProgress(`${answerData.count} Fragen mit Antworten bereit`);
+      setPdfStep('preview');
+      
+    } catch (e) {
+      setPdfError(e instanceof Error ? e.message : String(e));
+      setPdfStep('upload');
+    }
+  };
+
+  const handleImportToAnki = async () => {
+    if (!importDeckName.trim() || parsedQuestions.length === 0) return;
+    
+    setPdfStep('importing');
+    setPdfProgress('Importiere nach Anki...');
+    setPdfError(null);
+    
+    try {
+      const res = await fetch('/api/mcp/import-cards', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deckName: importDeckName.trim(),
+          questions: parsedQuestions,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      
+      setPdfProgress(data.message);
+      alert(data.message);
+      
+      // Reset
+      setPdfStep('upload');
+      setPdfFile(null);
+      setParsedQuestions([]);
+      loadDecks(); // Refresh decks
+      
+    } catch (e) {
+      setPdfError(e instanceof Error ? e.message : String(e));
+      setPdfStep('preview');
+    }
+  };
+
+  const resetPdfImport = () => {
+    setPdfFile(null);
+    setPdfText('');
+    setPdfTitle('');
+    setParsedQuestions([]);
+    setPdfStep('upload');
+    setPdfError(null);
+    setPdfProgress('');
   };
 
   return (
@@ -916,6 +1052,151 @@ export default function Dashboard() {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* PDF Import */}
+      {!isHosted && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FileUp className="h-5 w-5 text-purple-600" />
+              PDF Klausur importieren
+            </CardTitle>
+            <CardDescription>
+              Lade eine Altklausur-PDF hoch. Das LLM extrahiert Fragen und bestimmt die korrekten Antworten.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {pdfError && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-700">
+                <AlertCircle className="h-4 w-4" />
+                <span className="text-sm">{pdfError}</span>
+              </div>
+            )}
+
+            {pdfProgress && (
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center gap-2 text-blue-700">
+                {pdfStep !== 'preview' && pdfStep !== 'upload' && <Loader2 className="h-4 w-4 animate-spin" />}
+                {pdfStep === 'preview' && <CheckCircle className="h-4 w-4" />}
+                <span className="text-sm">{pdfProgress}</span>
+              </div>
+            )}
+
+            {/* Upload */}
+            {pdfStep === 'upload' && (
+              <div className="border-2 border-dashed border-zinc-300 rounded-lg p-8 text-center hover:border-purple-400 transition-colors">
+                <input
+                  type="file"
+                  accept=".pdf"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handlePdfUpload(file);
+                  }}
+                  className="hidden"
+                  id="pdf-upload"
+                />
+                <label htmlFor="pdf-upload" className="cursor-pointer">
+                  <Upload className="h-10 w-10 mx-auto text-zinc-400 mb-3" />
+                  <p className="text-sm text-zinc-600 mb-1">PDF hier ablegen oder klicken</p>
+                  <p className="text-xs text-zinc-400">z.B. "Altklausur Derma - WS 18-19.pdf"</p>
+                </label>
+              </div>
+            )}
+
+            {/* Preview */}
+            {pdfStep === 'preview' && parsedQuestions.length > 0 && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-medium text-zinc-900">
+                    {parsedQuestions.length} Fragen aus "{pdfTitle}"
+                  </h4>
+                  <Button variant="outline" size="sm" onClick={resetPdfImport}>
+                    Andere PDF
+                  </Button>
+                </div>
+
+                {/* Deck-Auswahl */}
+                <div className="flex flex-wrap gap-4 items-end">
+                  <div className="flex-1 min-w-[200px]">
+                    <label className="block text-sm font-medium text-zinc-700 mb-1">
+                      Ziel-Deck (neu oder bestehend)
+                    </label>
+                    <input
+                      type="text"
+                      value={importDeckName}
+                      onChange={(e) => setImportDeckName(e.target.value)}
+                      placeholder="z.B. Derma::Altklausuren::WS18-19"
+                      className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                    <p className="text-xs text-zinc-500 mt-1">
+                      Verwende "::" für Unterdecks
+                    </p>
+                  </div>
+                  <Button onClick={handleImportToAnki} disabled={!importDeckName.trim()}>
+                    <Download className="h-4 w-4 mr-2" />
+                    Nach Anki importieren
+                  </Button>
+                </div>
+
+                {/* Fragen-Vorschau */}
+                <div className="max-h-96 overflow-y-auto space-y-3">
+                  {parsedQuestions.slice(0, 10).map((q, i) => (
+                    <div key={i} className="p-3 border border-zinc-200 rounded-lg bg-zinc-50">
+                      <div className="flex items-start justify-between mb-2">
+                        <Badge variant="secondary" className="text-xs">
+                          {q.type} • Frage {q.number}
+                        </Badge>
+                        {q.correctAnswers && (
+                          <span className="text-xs font-mono text-zinc-500">
+                            {q.correctAnswers}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-zinc-900 mb-2">{q.question}</p>
+                      <div className="space-y-1">
+                        {q.options.map((opt, j) => {
+                          const isCorrect = q.correctAnswers?.[j] === '1';
+                          return (
+                            <div
+                              key={j}
+                              className={`text-xs py-1 px-2 rounded ${
+                                isCorrect ? 'bg-green-100 text-green-800' : 'text-zinc-600'
+                              }`}
+                            >
+                              {String.fromCharCode(65 + j)}) {opt} {isCorrect && '✓'}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {q.explanation && (
+                        <p className="text-xs text-zinc-500 mt-2 border-t pt-2">
+                          {q.explanation}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                  {parsedQuestions.length > 10 && (
+                    <p className="text-sm text-zinc-500 text-center">
+                      ... und {parsedQuestions.length - 10} weitere Fragen
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Loading States */}
+            {(pdfStep === 'parsing' || pdfStep === 'answering' || pdfStep === 'importing') && (
+              <div className="text-center py-8">
+                <Loader2 className="h-8 w-8 animate-spin mx-auto text-purple-600 mb-3" />
+                <p className="text-sm text-zinc-600">
+                  {pdfStep === 'parsing' && 'Extrahiere Fragen aus PDF...'}
+                  {pdfStep === 'answering' && 'LLM bestimmt korrekte Antworten...'}
+                  {pdfStep === 'importing' && 'Importiere nach Anki...'}
+                </p>
               </div>
             )}
           </CardContent>
