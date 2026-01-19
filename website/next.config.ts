@@ -1,9 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Remove standalone output for Vercel
-  // Vercel handles the build output automatically
   trailingSlash: false,
+  serverExternalPackages: ['pdf-parse', '@napi-rs/canvas', 'anki-apkg-export', 'sql.js'],
 };
 
 export default nextConfig;

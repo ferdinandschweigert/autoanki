@@ -1,5 +1,11 @@
 import type { Metadata } from "next";
+import { Source_Sans_3 } from "next/font/google";
 import "./globals.css";
+
+const sourceSans = Source_Sans_3({
+  subsets: ["latin", "latin-ext"],
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "Adalbert - Anki MCP Server",
@@ -12,8 +18,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="light">
-      <body className="antialiased">
+    <html lang="de" className="light">
+      <body className={`antialiased ${sourceSans.className}`}>
         {children}
       </body>
     </html>

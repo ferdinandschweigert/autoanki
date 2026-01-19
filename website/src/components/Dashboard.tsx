@@ -17,7 +17,8 @@ import {
   Download,
   Target,
   Upload,
-  FileUp
+  FileUp,
+  Copy
 } from 'lucide-react';
 
 interface Deck {
@@ -126,7 +127,7 @@ export default function Dashboard() {
   const [enrichProgress, setEnrichProgress] = useState<{ done: number; total: number } | null>(null);
   const [enrichedCards, setEnrichedCards] = useState<EnrichedCard[]>([]);
   const [enrichError, setEnrichError] = useState<string | null>(null);
-  const [llmProvider, setLlmProvider] = useState<LlmProvider>('gemini');
+  const [llmProvider, setLlmProvider] = useState<LlmProvider>('together');
   const [llmProfile, setLlmProfile] = useState<LlmProfile>('balanced');
   const [llmModelOverride, setLlmModelOverride] = useState('');
   const [syncTargetDeck, setSyncTargetDeck] = useState('');
@@ -179,10 +180,12 @@ export default function Dashboard() {
   const [pdfText, setPdfText] = useState<string>('');
   const [pdfTitle, setPdfTitle] = useState<string>('');
   const [parsedQuestions, setParsedQuestions] = useState<ParsedQuestion[]>([]);
-  const [pdfStep, setPdfStep] = useState<'upload' | 'parsing' | 'answering' | 'preview' | 'importing'>('upload');
+  const [pdfStep, setPdfStep] = useState<'upload' | 'parsing' | 'answering' | 'preview' | 'importing' | 'exporting'>('upload');
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [pdfProgress, setPdfProgress] = useState<string>('');
   const [importDeckName, setImportDeckName] = useState<string>('');
+  const [pdfUsedOcr, setPdfUsedOcr] = useState(false);
+  const [pdfCopySuccess, setPdfCopySuccess] = useState(false);
 
   const loadDecks = async () => {
     if (isHosted) return;
@@ -449,9 +452,10 @@ export default function Dashboard() {
       if (!extractRes.ok) throw new Error(extractData.error);
       
       setPdfText(extractData.text);
-      setPdfTitle(extractData.title || file.name.replace('.pdf', ''));
-      setImportDeckName(extractData.title || file.name.replace('.pdf', ''));
-      setPdfProgress(`${extractData.charCount} Zeichen extrahiert. Parse Fragen...`);
+      setPdfTitle(extractData.title || file.name.replace(/\.pdf$/i, ''));
+      setPdfUsedOcr(extractData.usedOcr === true);
+      setImportDeckName(''); // Kein Bezug zu Originaldaten – Nutzer wählt selbst
+      setPdfProgress(`${extractData.charCount} Zeichen extrahiert${extractData.usedOcr ? ' (OCR)' : ''}. Parse Fragen...`);
       
       // Step 2: Fragen parsen
       const parseFormData = new FormData();
@@ -529,14 +533,72 @@ export default function Dashboard() {
     }
   };
 
+  const handleExportApkg = async () => {
+    if (parsedQuestions.length === 0) return;
+
+    const deckName = importDeckName.trim() || pdfTitle || 'PDF Import';
+    setPdfStep('exporting');
+    setPdfProgress('Erstelle .apkg...');
+    setPdfError(null);
+
+    try {
+      const res = await fetch('/api/mcp/export-apkg', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deckName,
+          questions: parsedQuestions,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `Export fehlgeschlagen (${res.status})`);
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const fileName = deckName.replace(/[^a-zA-Z0-9._-]/g, '_') + '.apkg';
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      setPdfProgress(`APKG exportiert: ${fileName}`);
+      setPdfStep('preview');
+    } catch (e) {
+      setPdfError(e instanceof Error ? e.message : String(e));
+      setPdfStep('preview');
+    }
+  };
+
   const resetPdfImport = () => {
     setPdfFile(null);
     setPdfText('');
     setPdfTitle('');
+    setPdfUsedOcr(false);
     setParsedQuestions([]);
     setPdfStep('upload');
     setPdfError(null);
     setPdfProgress('');
+  };
+
+  const copyPdfText = () => {
+    navigator.clipboard.writeText(pdfText).then(
+      () => { setPdfCopySuccess(true); setTimeout(() => setPdfCopySuccess(false), 2000); },
+      () => {}
+    );
+  };
+
+  const downloadPdfText = () => {
+    const blob = new Blob([pdfText], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (pdfTitle || 'extrahiert').replace(/[^a-zA-Z0-9äöüÄÖÜß._-]/g, '_') + '.txt';
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -546,7 +608,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="flex items-center gap-2">
-                <BookOpen className="h-5 w-5 text-blue-600" />
+                <BookOpen className="h-5 w-5 text-[#002F5D]" />
                 Anki Dashboard
               </CardTitle>
               <CardDescription>
@@ -573,7 +635,7 @@ export default function Dashboard() {
           )}
 
           {isHosted && (
-            <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-amber-800">
+            <div className="mb-4 p-3 bg-[#eef5fb] border border-[#2C94CC]/40 rounded-lg flex items-center gap-2 text-[#002F5D]">
               <AlertCircle className="h-4 w-4" />
               <span className="text-sm">
                 AnkiConnect funktioniert nur lokal mit Anki Desktop. Diese Funktionen sind auf Vercel deaktiviert.
@@ -582,7 +644,7 @@ export default function Dashboard() {
           )}
           
           {status && (
-            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center gap-2 text-blue-700">
+            <div className="mb-4 p-3 bg-[#eef5fb] border border-[#2C94CC]/40 rounded-lg flex items-center gap-2 text-[#002F5D]">
               <CheckCircle className="h-4 w-4" />
               <span className="text-sm">{status}</span>
             </div>
@@ -596,7 +658,7 @@ export default function Dashboard() {
               <select
                 value={selectedDeck}
                 onChange={(e) => setSelectedDeck(e.target.value)}
-                className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#002F5D]"
                 disabled={loading || decks.length === 0 || isHosted === true}
               >
                 <option value="">-- Deck auswählen --</option>
@@ -619,7 +681,7 @@ export default function Dashboard() {
 
             {loading && (
               <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+                <Loader2 className="h-6 w-6 animate-spin text-[#002F5D]" />
                 <span className="ml-2 text-zinc-600">Lade...</span>
               </div>
             )}
@@ -632,13 +694,13 @@ export default function Dashboard() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Sparkles className="h-5 w-5 text-amber-500" />
+              <Sparkles className="h-5 w-5 text-[#002F5D]" />
               Karten anreichern
             </CardTitle>
             <CardDescription>
               KI-Erklärungen, Eselsbrücken und Referenzen generieren. Wähle Provider und Profil für Tempo/Qualität. Pro Batch 5 Karten, ~1–2 Min. pro Batch.
               <br />
-              <span className="text-xs text-amber-600 mt-1 block">
+              <span className="text-xs text-[#002F5D]/80 mt-1 block">
                 ⚠️ Limits hängen vom Provider/Plan ab. Bei Quota/Ratelimit bitte später erneut versuchen oder Provider/Key wechseln.
               </span>
             </CardDescription>
@@ -660,20 +722,20 @@ export default function Dashboard() {
 
             {/* Fortschritt: sofort sichtbar, sobald Anreicherung läuft */}
             {enriching && enrichProgress && (
-              <div className="p-4 bg-amber-50 border-2 border-amber-300 rounded-lg">
+              <div className="p-4 bg-[#eef5fb] border-2 border-[#2C94CC]/50 rounded-lg">
                 <div className="flex items-center gap-3">
-                  <Loader2 className="h-6 w-6 animate-spin text-amber-600 flex-shrink-0" />
+                  <Loader2 className="h-6 w-6 animate-spin text-[#002F5D] flex-shrink-0" />
                   <div>
-                    <p className="font-medium text-amber-900">Anreicherung läuft</p>
-                    <p className="text-amber-800 text-sm mt-0.5">
+                    <p className="font-medium text-[#002F5D]">Anreicherung läuft</p>
+                    <p className="text-[#002F5D]/90 text-sm mt-0.5">
                       Fortschritt: <strong>{enrichProgress.done} von {enrichProgress.total}</strong> Karten
                     </p>
                     {enrichProgress.done === 0 ? (
-                      <p className="text-amber-700 text-sm mt-1">
+                      <p className="text-[#002F5D]/80 text-sm mt-1">
                         Der erste Batch (5 Karten) kann 1–2 Minuten dauern. Bitte warten…
                       </p>
                     ) : (
-                      <p className="text-amber-700 text-sm mt-1">Nächster Batch wird verarbeitet…</p>
+                      <p className="text-[#002F5D]/80 text-sm mt-1">Nächster Batch wird verarbeitet…</p>
                     )}
                   </div>
                 </div>
@@ -686,7 +748,7 @@ export default function Dashboard() {
                 <select
                   value={llmProvider}
                   onChange={(e) => setLlmProvider(e.target.value as LlmProvider)}
-                  className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#002F5D]"
                   disabled={enriching}
                 >
                   {LLM_PROVIDERS.map((provider) => (
@@ -706,7 +768,7 @@ export default function Dashboard() {
                 <select
                   value={llmProfile}
                   onChange={(e) => setLlmProfile(e.target.value as LlmProfile)}
-                  className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#002F5D]"
                   disabled={enriching}
                 >
                   {LLM_PROFILES.map((profile) => (
@@ -726,7 +788,7 @@ export default function Dashboard() {
                   value={llmModelOverride}
                   onChange={(e) => setLlmModelOverride(e.target.value)}
                   placeholder={presetModel}
-                  className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#002F5D]"
                   disabled={enriching}
                 />
                 <p className="text-xs text-zinc-500 mt-1">
@@ -744,7 +806,7 @@ export default function Dashboard() {
                   max={500}
                   value={enrichLimit}
                   onChange={(e) => setEnrichLimit(Math.max(1, Math.min(500, parseInt(e.target.value, 10) || 1)))}
-                  className="w-24 px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-24 px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#002F5D]"
                   disabled={enriching}
                 />
               </div>
@@ -789,7 +851,7 @@ export default function Dashboard() {
             
             {/* Gespeicherter Fortschritt Info */}
             {savedProgress && savedProgress.cards.length > 0 && !enriching && (
-              <p className="text-sm text-blue-600">
+              <p className="text-sm text-[#002F5D]">
                 💾 {savedProgress.cards.length} Karten gespeichert (vom {new Date(savedProgress.timestamp).toLocaleString('de-DE')})
               </p>
             )}
@@ -966,7 +1028,7 @@ export default function Dashboard() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Target className="h-5 w-5 text-emerald-600" />
+              <Target className="h-5 w-5 text-[#002F5D]" />
               80/20 Themenliste
             </CardTitle>
             <CardDescription>
@@ -992,7 +1054,7 @@ export default function Dashboard() {
                   onChange={(e) =>
                     setPriorityLimit(Math.max(10, Math.min(1000, parseInt(e.target.value, 10) || 10)))
                   }
-                  className="w-28 px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="w-28 px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#002F5D]"
                   disabled={priorityLoading}
                 />
               </div>
@@ -1063,7 +1125,7 @@ export default function Dashboard() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <FileUp className="h-5 w-5 text-purple-600" />
+              <FileUp className="h-5 w-5 text-[#002F5D]" />
               PDF Klausur importieren
             </CardTitle>
             <CardDescription>
@@ -1079,16 +1141,54 @@ export default function Dashboard() {
             )}
 
             {pdfProgress && (
-              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center gap-2 text-blue-700">
+              <div className="p-3 bg-[#eef5fb] border border-[#2C94CC]/40 rounded-lg flex items-center gap-2 text-[#002F5D]">
                 {pdfStep !== 'preview' && pdfStep !== 'upload' && <Loader2 className="h-4 w-4 animate-spin" />}
                 {pdfStep === 'preview' && <CheckCircle className="h-4 w-4" />}
                 <span className="text-sm">{pdfProgress}</span>
               </div>
             )}
 
+            {/* Extrahierten Text prüfen / in IDE reviewen */}
+            {pdfText.length > 0 && (
+              <details className="group border border-[#e2e8f0] rounded-lg overflow-hidden">
+                <summary className="px-4 py-3 bg-zinc-50 cursor-pointer list-none flex items-center justify-between gap-2 hover:bg-zinc-100">
+                  <span className="font-medium text-zinc-800 flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-[#002F5D]" />
+                    Extrahierten Text prüfen
+                  </span>
+                  <span className="text-sm text-zinc-500">
+                    {pdfText.length.toLocaleString('de-DE')} Zeichen
+                    {pdfUsedOcr && <Badge variant="secondary" className="ml-2 text-xs">OCR</Badge>}
+                  </span>
+                </summary>
+                <div className="p-4 pt-0 space-y-3">
+                  <div className="max-h-64 overflow-y-auto rounded border border-zinc-200 bg-white">
+                    <pre className="p-4 text-xs text-zinc-700 whitespace-pre-wrap font-sans">
+                      {pdfText.length <= 32000
+                        ? pdfText
+                        : pdfText.slice(0, 32000) + `\n\n… und ${(pdfText.length - 32000).toLocaleString('de-DE')} weitere Zeichen`}
+                    </pre>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="outline" size="sm" onClick={copyPdfText}>
+                      <Copy className="h-4 w-4 mr-2" />
+                      {pdfCopySuccess ? 'Kopiert!' : 'Kopieren'}
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={downloadPdfText}>
+                      <Download className="h-4 w-4 mr-2" />
+                      Als .txt herunterladen
+                    </Button>
+                  </div>
+                  <p className="text-xs text-zinc-500">
+                    Zum Review in der IDE: Text kopieren oder als .txt speichern und in deinem Editor öffnen.
+                  </p>
+                </div>
+              </details>
+            )}
+
             {/* Upload */}
             {pdfStep === 'upload' && (
-              <div className="border-2 border-dashed border-zinc-300 rounded-lg p-8 text-center hover:border-purple-400 transition-colors">
+              <div className="border-2 border-dashed border-zinc-300 rounded-lg p-8 text-center hover:border-[#2C94CC] transition-colors">
                 <input
                   type="file"
                   accept=".pdf"
@@ -1102,7 +1202,7 @@ export default function Dashboard() {
                 <label htmlFor="pdf-upload" className="cursor-pointer">
                   <Upload className="h-10 w-10 mx-auto text-zinc-400 mb-3" />
                   <p className="text-sm text-zinc-600 mb-1">PDF hier ablegen oder klicken</p>
-                  <p className="text-xs text-zinc-400">z.B. "Altklausur Derma - WS 18-19.pdf"</p>
+                  <p className="text-xs text-zinc-400">z.B. "Altklausur XYZ.pdf"</p>
                 </label>
               </div>
             )}
@@ -1129,8 +1229,8 @@ export default function Dashboard() {
                       type="text"
                       value={importDeckName}
                       onChange={(e) => setImportDeckName(e.target.value)}
-                      placeholder="z.B. Derma::Altklausuren::WS18-19"
-                      className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      placeholder="z.B. Fach::Unterordner::Import (:: = Unterdeck)"
+                      className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#002F5D]"
                     />
                     <p className="text-xs text-zinc-500 mt-1">
                       Verwende "::" für Unterdecks
@@ -1139,6 +1239,10 @@ export default function Dashboard() {
                   <Button onClick={handleImportToAnki} disabled={!importDeckName.trim()}>
                     <Download className="h-4 w-4 mr-2" />
                     Nach Anki importieren
+                  </Button>
+                  <Button variant="outline" onClick={handleExportApkg}>
+                    <Download className="h-4 w-4 mr-2" />
+                    Als .apkg herunterladen
                   </Button>
                 </div>
 
@@ -1189,13 +1293,14 @@ export default function Dashboard() {
             )}
 
             {/* Loading States */}
-            {(pdfStep === 'parsing' || pdfStep === 'answering' || pdfStep === 'importing') && (
+            {(pdfStep === 'parsing' || pdfStep === 'answering' || pdfStep === 'importing' || pdfStep === 'exporting') && (
               <div className="text-center py-8">
-                <Loader2 className="h-8 w-8 animate-spin mx-auto text-purple-600 mb-3" />
+                <Loader2 className="h-8 w-8 animate-spin mx-auto text-[#002F5D] mb-3" />
                 <p className="text-sm text-zinc-600">
                   {pdfStep === 'parsing' && 'Extrahiere Fragen aus PDF...'}
                   {pdfStep === 'answering' && 'LLM bestimmt korrekte Antworten...'}
                   {pdfStep === 'importing' && 'Importiere nach Anki...'}
+                  {pdfStep === 'exporting' && 'Erstelle .apkg...'}
                 </p>
               </div>
             )}
@@ -1207,7 +1312,7 @@ export default function Dashboard() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5 text-blue-600" />
+              <FileText className="h-5 w-5 text-[#002F5D]" />
               Karten aus &quot;{selectedDeck}&quot;
             </CardTitle>
             <CardDescription>
@@ -1219,7 +1324,7 @@ export default function Dashboard() {
               {cards.slice(0, 10).map((card, index) => (
                 <div
                   key={index}
-                  className="p-4 border-2 border-blue-200 rounded-lg bg-white"
+                  className="p-4 border-2 border-[#e2e8f0] rounded-lg bg-white"
                 >
                   <div className="flex items-start justify-between mb-2">
                     <Badge variant="secondary" className="text-xs">
