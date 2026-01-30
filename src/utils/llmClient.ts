@@ -202,10 +202,29 @@ async function sleep(ms: number) {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function generateGemini(prompt: string, config: LlmProviderConfig): Promise<string> {
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return promise;
+  }
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      const err = new Error(`${label} request timed out after ${timeoutMs}ms`);
+      (err as { status?: number }).status = 408;
+      reject(err);
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
+async function generateGemini(prompt: string, config: LlmProviderConfig, timeoutMs: number): Promise<string> {
   const genAI = new GoogleGenerativeAI(config.apiKey);
   const model = genAI.getGenerativeModel({ model: config.model });
-  const result = await model.generateContent(prompt);
+  const result = await withTimeout(model.generateContent(prompt), timeoutMs, 'Gemini');
   return result.response.text();
 }
 
@@ -233,7 +252,7 @@ async function generateOpenAICompatible(
       }),
       signal: controller.signal,
     });
-    const payload = await res.json().catch(() => null);
+    const payload: any = await res.json().catch(() => null);
     if (!res.ok) {
       const message =
         payload?.error?.message || payload?.error || payload?.message || res.statusText || 'Request failed';
@@ -264,7 +283,7 @@ async function generateText(
   timeoutMs: number
 ): Promise<string> {
   if (config.provider === 'gemini') {
-    return generateGemini(prompt, config);
+    return generateGemini(prompt, config, timeoutMs);
   }
   return generateOpenAICompatible(prompt, config, timeoutMs);
 }

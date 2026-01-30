@@ -20,6 +20,15 @@ function resolveRequestDelayMs(override?: number): number {
   return 500;
 }
 
+function sanitizeForPrompt(value: string): string {
+  return value
+    .replace(/<br\s*\/?>/gi, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function isBinaryAnswerString(value: string): boolean {
   const trimmed = value.trim();
   if (!trimmed) {
@@ -58,8 +67,12 @@ export async function enrichCard(
   options?: string[],
   answers?: string
 ): Promise<EnrichedCard> {
+  const cleanFront = sanitizeForPrompt(front);
+  const cleanBack = sanitizeForPrompt(back);
+  const promptFront = cleanFront || front.trim();
+
   // Build options list if available
-  const optionsList = options ?? [];
+  const optionsList = (options ?? []).map(opt => sanitizeForPrompt(opt));
   const hasOptions = optionsList.some(opt => opt && opt.trim().length > 0);
   let optionsText = '';
   if (hasOptions) {
@@ -72,8 +85,9 @@ export async function enrichCard(
   }
   
   // Parse binary answers if available
-  const explicitBinaryAnswers = answers && isBinaryAnswerString(answers) ? answers : '';
-  const fallbackBinaryAnswers = !explicitBinaryAnswers && isBinaryAnswerString(back) ? back : '';
+  const cleanedAnswers = answers ? sanitizeForPrompt(answers) : '';
+  const explicitBinaryAnswers = cleanedAnswers && isBinaryAnswerString(cleanedAnswers) ? cleanedAnswers : '';
+  const fallbackBinaryAnswers = !explicitBinaryAnswers && isBinaryAnswerString(cleanBack) ? cleanBack : '';
   const binaryAnswers = explicitBinaryAnswers || fallbackBinaryAnswers;
   let answerBits: string[] = [];
   let correctAnswersText = '';
@@ -101,7 +115,7 @@ export async function enrichCard(
   }
   
   const hasBinaryAnswers = hasOptions && answerBits.length > 0;
-  const backText = back.trim();
+  const backText = cleanBack;
   const answerText = hasBinaryAnswers
     ? `\n\nANTWORT (Binärcode): ${binaryAnswers}`
     : backText
@@ -130,7 +144,7 @@ export async function enrichCard(
   const prompt = `Du bist ein hilfreicher Tutor für Universitätsprüfungen. 
 Ergänze die folgende Lernkarte mit einer klaren, strukturierten Erklärung auf Deutsch.
 
-FRAGE: ${front}${optionsText}${correctAnswersText}${answerText}
+FRAGE: ${promptFront}${optionsText}${correctAnswersText}${answerText}
 
 ${formatIntro}
 

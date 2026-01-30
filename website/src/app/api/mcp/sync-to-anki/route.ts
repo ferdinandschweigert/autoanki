@@ -110,6 +110,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const sourceDeck = (body.deckName || '').replace(/[<>"']/g, '').trim();
     const cards = Array.isArray(body.cards) ? body.cards as EnrichedCard[] : [];
+    const dryRun = Boolean(body.dryRun);
 
     if (!sourceDeck) {
       return NextResponse.json({ error: 'deckName is required' }, { status: 400 });
@@ -157,6 +158,9 @@ export async function POST(request: NextRequest) {
     }
 
     let updated = 0;
+    let wouldUpdate = 0;
+    let alreadyEnriched = 0;
+    let missingTargetField = 0;
     let notFound = 0;
     const errors: string[] = [];
 
@@ -174,20 +178,50 @@ export async function POST(request: NextRequest) {
       const fields = matchingNote.fields;
       let targetField = '';
       
-      // Priorität: Sources > Extra > Hinweis > erstes leeres Feld
-      if ('Sources' in fields) targetField = 'Sources';
+      // Priorität: Extra 1 > Sources > Extra > Hinweis > Zusatz
+      if ('Extra 1' in fields) targetField = 'Extra 1';
+      else if ('Sources' in fields) targetField = 'Sources';
       else if ('Extra' in fields) targetField = 'Extra';
       else if ('Hinweis' in fields) targetField = 'Hinweis';
       else if ('Zusatz' in fields) targetField = 'Zusatz';
+      else {
+        // Fallback: Suche nach jedem Feld, das "Extra" oder "Sources" im Namen hat
+        for (const fieldName of Object.keys(fields)) {
+          const lower = fieldName.toLowerCase();
+          if (lower.includes('extra') || lower.includes('source') || lower.includes('hinweis') || lower.includes('zusatz')) {
+            targetField = fieldName;
+            break;
+          }
+        }
+      }
       
       if (!targetField) {
         // Kein passendes Feld gefunden - überspringen
-        errors.push(`Kein Sources/Extra Feld für: ${card.front.substring(0, 50)}...`);
+        missingTargetField += 1;
+        errors.push(`Kein Extra 1/Sources Feld für: ${card.front.substring(0, 50)}... (Verfügbare Felder: ${Object.keys(fields).join(', ')})`);
+        continue;
+      }
+      
+      // Prüfen ob bereits Anreicherung vorhanden ist
+      const existingContent = fields[targetField]?.value || '';
+      const hasEnrichment = existingContent.includes('Lösung:') || 
+                           existingContent.includes('Erklärung:') || 
+                           existingContent.includes('Bewertungstabelle') ||
+                           existingContent.includes('Zusammenfassung:');
+      
+      if (hasEnrichment) {
+        // Bereits angereichert - überspringen
+        alreadyEnriched += 1;
         continue;
       }
 
       const enrichmentHtml = formatEnrichmentHtml(card);
-      
+
+      if (dryRun) {
+        wouldUpdate += 1;
+        continue;
+      }
+
       try {
         await ankiRequest({
           action: 'updateNoteFields',
@@ -211,10 +245,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       updated,
+      wouldUpdate,
+      alreadyEnriched,
+      missingTargetField,
       notFound,
       total: cards.length,
-      message: `${updated} Karten aktualisiert` + 
+      dryRun,
+      message: `${dryRun ? wouldUpdate : updated} Karten ${dryRun ? 'würden aktualisiert' : 'aktualisiert'}` + 
         (notFound > 0 ? `, ${notFound} nicht gefunden` : '') +
+        (alreadyEnriched > 0 ? `, ${alreadyEnriched} bereits angereichert` : '') +
+        (missingTargetField > 0 ? `, ${missingTargetField} ohne Ziel-Feld` : '') +
         (errors.length > 0 ? `. Fehler: ${errors.slice(0, 3).join('; ')}` : ''),
     });
   } catch (e: unknown) {

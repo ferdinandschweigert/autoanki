@@ -115,6 +115,21 @@ function parseGeminiResponse(text: string, fallbackBack: string): GeminiResponse
   }
 }
 
+function sanitizeForPrompt(value: string): string {
+  return value
+    .replace(/<br\s*\/?>/gi, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function normalizeText(value: unknown): string {
+  if (typeof value === 'string') return value.trim();
+  if (value === null || value === undefined) return '';
+  return String(value).trim();
+}
+
 function normalizeBewertung(value: string | boolean | undefined): 'Richtig' | 'Falsch' | 'Yes' | 'No' {
   if (typeof value === 'boolean') return value ? 'Richtig' : 'Falsch';
   const v = (value || '').toLowerCase().trim();
@@ -131,21 +146,21 @@ function normalizeGeminiResponse(parsed: GeminiResponse, fallbackBack: string) {
     bewertungsTabelle = rawTabelle
       .filter((entry): entry is BewertungsEintrag => typeof entry === 'object' && entry !== null)
       .map((entry) => ({
-        aussage: entry.aussage || entry.option || '',
+        aussage: normalizeText(entry.aussage || entry.option),
         bewertung: normalizeBewertung(entry.bewertung ?? entry.richtig),
-        begründung: entry.begründung || entry.begruendung || entry.grund || '',
+        begründung: normalizeText(entry.begründung || entry.begruendung || entry.grund),
       }))
       .filter((entry) => entry.aussage);
   }
 
   return {
-    lösung: parsed.lösung || parsed.loesung || parsed.antwort || fallbackBack,
-    erklärung: parsed.erklärung || parsed.erklarung || '',
+    lösung: normalizeText(parsed.lösung || parsed.loesung || parsed.antwort) || normalizeText(fallbackBack),
+    erklärung: normalizeText(parsed.erklärung || parsed.erklarung),
     bewertungsTabelle,
-    zusammenfassung: parsed.zusammenfassung || '',
-    eselsbrücke: parsed.eselsbrücke || parsed.eselsbrucke || '',
-    referenz: parsed.referenz || '',
-    extra1: parsed.extra1 || parsed['Extra 1'] || '',
+    zusammenfassung: normalizeText(parsed.zusammenfassung),
+    eselsbrücke: normalizeText(parsed.eselsbrücke || parsed.eselsbrucke),
+    referenz: normalizeText(parsed.referenz),
+    extra1: normalizeText(parsed.extra1 || parsed['Extra 1']),
   };
 }
 
@@ -186,7 +201,10 @@ export async function enrichCard(
   options?: string[],
   answers?: string
 ): Promise<EnrichedCard> {
-  const optionsList = options ?? [];
+  const cleanFront = sanitizeForPrompt(front);
+  const cleanBack = sanitizeForPrompt(back);
+  const promptFront = cleanFront || front.trim();
+  const optionsList = (options ?? []).map(opt => sanitizeForPrompt(opt));
   const hasOptions = optionsList.some((o) => o && o.trim().length > 0);
   let optionsText = '';
   if (hasOptions) {
@@ -196,8 +214,9 @@ export async function enrichCard(
     });
   }
 
-  const explicitBinary = answers && isBinaryAnswerString(answers) ? answers : '';
-  const fallbackBinary = !explicitBinary && isBinaryAnswerString(back) ? back : '';
+  const cleanedAnswers = answers ? sanitizeForPrompt(answers) : '';
+  const explicitBinary = cleanedAnswers && isBinaryAnswerString(cleanedAnswers) ? cleanedAnswers : '';
+  const fallbackBinary = !explicitBinary && isBinaryAnswerString(cleanBack) ? cleanBack : '';
   const binaryAnswers = explicitBinary || fallbackBinary;
   let correctAnswersText = '';
   if (hasOptions && binaryAnswers) {
@@ -217,7 +236,7 @@ export async function enrichCard(
   const hasBinary = hasOptions && binaryAnswers;
   const answerText = hasBinary
     ? `\n\nANTWORT (Binärcode): ${binaryAnswers}`
-    : back.trim() ? `\n\nANTWORT: ${back.trim()}` : '';
+    : cleanBack ? `\n\nANTWORT: ${cleanBack}` : '';
 
   const formatIntro = hasOptions
     ? hasBinary
@@ -267,7 +286,7 @@ export async function enrichCard(
   const prompt = `Du bist ein hilfreicher Tutor für Universitätsprüfungen (Medizin).
 Ergänze die folgende Lernkarte mit einer klaren, STRUKTURIERTEN Erklärung auf Deutsch.
 
-FRAGE: ${front}${optionsText}${correctAnswersText}${answerText}
+FRAGE: ${promptFront}${optionsText}${correctAnswersText}${answerText}
 
 ${formatIntro}
 

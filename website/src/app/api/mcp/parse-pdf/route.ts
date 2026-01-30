@@ -186,7 +186,7 @@ async function renderPdfPagesToBase64Pngs(buffer: Buffer, scale: number): Promis
       const page = await pdfDocument.getPage(pageNum);
       const viewport = page.getViewport({ scale });
       const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
-      const context = canvas.getContext('2d');
+      const context = canvas.getContext('2d') as unknown as CanvasRenderingContext2D;
       await page.render({ canvasContext: context, viewport }).promise;
       pages.push(canvas.toBuffer('image/png').toString('base64'));
     }
@@ -474,12 +474,19 @@ export async function POST(request: NextRequest) {
     const model = formData.get('model') as string || '';
     const step = formData.get('step') as string || 'extract'; // 'extract', 'parse', 'answer'
     const questionsJson = formData.get('questions') as string || '';
+    const apiKey = formData.get('apiKey') as string || '';
+    const baseUrl = formData.get('baseUrl') as string || '';
 
     if (!file && step === 'extract') {
       return NextResponse.json({ error: 'Keine PDF-Datei hochgeladen' }, { status: 400 });
     }
 
-    const llmConfig = buildLlmConfig({ provider, model: model || undefined });
+    const llmConfig = buildLlmConfig({
+      provider,
+      model: model || undefined,
+      apiKey: apiKey || undefined,
+      baseUrl: baseUrl || undefined,
+    });
 
     // Step 1: Text extrahieren
     if (step === 'extract') {

@@ -24,6 +24,12 @@ export function extractJsonFromText(text: string): string {
   return jsonText;
 }
 
+function normalizeText(value: unknown): string {
+  if (typeof value === 'string') return value.trim();
+  if (value === null || value === undefined) return '';
+  return String(value).trim();
+}
+
 function sanitizeJsonString(jsonText: string): string {
   let out = '';
   let inString = false;
@@ -100,10 +106,10 @@ export function normalizeGeminiResponse(parsed: GeminiResponse, fallbackBack: st
   extra1: string;
 } {
   return {
-    lösung: parsed.lösung || parsed.loesung || parsed.antwort || fallbackBack,
-    erklärung: parsed.erklärung || parsed.erklarung || '',
-    eselsbrücke: parsed.eselsbrücke || parsed.eselsbrucke || '',
-    referenz: parsed.referenz || '',
-    extra1: parsed.extra1 || parsed['Extra 1'] || '',
+    lösung: normalizeText(parsed.lösung || parsed.loesung || parsed.antwort) || normalizeText(fallbackBack),
+    erklärung: normalizeText(parsed.erklärung || parsed.erklarung),
+    eselsbrücke: normalizeText(parsed.eselsbrücke || parsed.eselsbrucke),
+    referenz: normalizeText(parsed.referenz),
+    extra1: normalizeText(parsed.extra1 || parsed['Extra 1']),
   };
 }

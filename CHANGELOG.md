@@ -6,6 +6,11 @@ Kurze Übersicht der wichtigsten Änderungen.
 
 ## 01/2026
 
+### Stabilität & Sicherheit
+- **Enrich-Cards Pagination Fix**: Offset/Batching arbeitet wieder deck-weit (keine leeren Batches mehr)
+- **Anki Sync Dry-Run**: Optionaler Testlauf, um Matches/Fehler vor dem Schreiben zu sehen
+- **LLM-Timeouts & Prompt-Sanitizing**: Verhindert Hänger und reduziert HTML-Störungen
+
 ### PDF Klausur-Import (NEU)
 - **PDF hochladen** → Altklausuren als Anki-Karten
 - **LLM extrahiert Fragen** (SC/MC/KPRIM erkannt)
